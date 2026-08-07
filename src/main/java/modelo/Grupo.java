@@ -11,6 +11,7 @@ public class Grupo implements Serializable {
     private int horaInicio;
     private Set<DiaSemana> dias;
     private Materia materiaPadre; // Referencia a la materia a la que pertenece
+    private boolean disponible = true; // false = grupo lleno / cupo agotado
 
     public Grupo(String claveGrupo, String profesor, int horaInicio, Set<DiaSemana> dias) {
         this.claveGrupo = claveGrupo;
@@ -25,6 +26,8 @@ public class Grupo implements Serializable {
     public Set<DiaSemana> getDias() { return dias; }
     public Materia getMateriaPadre() { return materiaPadre; }
     public void setMateriaPadre(Materia materiaPadre) { this.materiaPadre = materiaPadre; }
+    public boolean isDisponible() { return disponible; }
+    public void setDisponible(boolean disponible) { this.disponible = disponible; }
 
     public boolean chocaCon(Grupo otro) {
         if (this.horaInicio != otro.horaInicio) return false;

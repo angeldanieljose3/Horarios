@@ -144,11 +144,18 @@ public class VistaPrincipal extends JFrame {
         listGrupos.setCellRenderer(new RenderizadorGrupoLista());
         panel.add(new JScrollPane(listGrupos), BorderLayout.CENTER);
 
+        JButton btnToggleDisponible = new JButton("⛔ Marcar/Desmarcar como Lleno");
+        btnToggleDisponible.addActionListener(e -> toggleDisponibilidadGrupoSeleccionado());
+
         JButton btnInscribir = new JButton("► Inscribir en Borrador Activo");
         btnInscribir.setFont(new Font("SansSerif", Font.BOLD, 12));
         btnInscribir.setBackground(new Color(220, 235, 252));
         btnInscribir.addActionListener(e -> inscribirGrupoEnBorradorSeleccionado());
-        panel.add(btnInscribir, BorderLayout.SOUTH);
+
+        JPanel panelBotonesCatalogo = new JPanel(new GridLayout(2, 1, 0, 4));
+        panelBotonesCatalogo.add(btnToggleDisponible);
+        panelBotonesCatalogo.add(btnInscribir);
+        panel.add(panelBotonesCatalogo, BorderLayout.SOUTH);
 
         return panel;
     }
@@ -168,9 +175,15 @@ public class VistaPrincipal extends JFrame {
         JButton btnExportarJPG = new JButton("Exportar Horarios (JPG)");
         btnExportarJPG.addActionListener(e -> exportarHorariosJPG());
 
+        JButton btnModoRapido = new JButton("⚡ Modo Rápido");
+        btnModoRapido.setFont(new Font("SansSerif", Font.BOLD, 12));
+        btnModoRapido.setBackground(new Color(255, 244, 200));
+        btnModoRapido.addActionListener(e -> mostrarDialogoModoRapido());
+
         panelTopBar.add(btnNuevoBorrador);
         panelTopBar.add(btnEliminarBorrador);
         panelTopBar.add(btnExportarJPG);
+        panelTopBar.add(btnModoRapido);
         panel.add(panelTopBar, BorderLayout.NORTH);
 
         // TABBED PANE (PESTAÑAS)
@@ -400,6 +413,12 @@ public class VistaPrincipal extends JFrame {
             return;
         }
 
+        if (!seleccionado.isDisponible()) {
+            JOptionPane.showMessageDialog(this, "Este grupo está marcado como LLENO y no se puede inscribir.",
+                    "Cupo agotado", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         HorarioBorrador borradorActivo = borradores.get(indexTab);
         List<Grupo> activos = borradorActivo.getGruposActivos();
         List<Grupo> removidos = new ArrayList<>();
@@ -440,6 +459,317 @@ public class VistaPrincipal extends JFrame {
             }
             JOptionPane.showMessageDialog(this, msg.toString(), "Grupo Reemplazado", JOptionPane.WARNING_MESSAGE);
         }
+    }
+
+    private void toggleDisponibilidadGrupoSeleccionado() {
+        Grupo seleccionado = listGrupos.getSelectedValue();
+        if (seleccionado == null) {
+            JOptionPane.showMessageDialog(this, "Selecciona un grupo del catálogo.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        seleccionado.setDisponible(!seleccionado.isDisponible());
+        GestorPersistencia.guardar(materiasRegistradas, borradores);
+
+        // Refrescar visualmente el JList sin reconstruir todo el modelo
+        int index = listGrupos.getSelectedIndex();
+        listGrupos.repaint();
+
+        String estado = seleccionado.isDisponible() ? "DISPONIBLE" : "LLENO";
+        JOptionPane.showMessageDialog(this,
+                seleccionado.getMateriaPadre().getNombre() + " [" + seleccionado.getClaveGrupo() + "] ahora está: " + estado,
+                "Disponibilidad actualizada", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    // =======================================================
+    // MODO RÁPIDO
+    // =======================================================
+
+    private static final int MAX_MATERIAS_SELECCIONABLES = 8;
+    private static final int MAX_HORARIOS_GENERABLES = 5;
+    private static final int MAX_HORAS_LIBRES_PERMITIDAS = 5;
+
+    private void mostrarDialogoModoRapido() {
+        if (materiasRegistradas.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Primero registra materias y grupos en el catálogo.",
+                    "Sin materias", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        JDialog dialogo = new JDialog(this, "Modo Rápido - Generar Horario(s)", true);
+        dialogo.setLayout(new BorderLayout(10, 10));
+        ((JPanel) dialogo.getContentPane()).setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // --- Selección de materias tentativas ---
+        JPanel panelMaterias = new JPanel();
+        panelMaterias.setLayout(new BoxLayout(panelMaterias, BoxLayout.Y_AXIS));
+        JLabel lblContador = new JLabel("Seleccionadas: 0 / " + MAX_MATERIAS_SELECCIONABLES);
+
+        List<JCheckBox> checkboxes = new ArrayList<>();
+        for (Materia m : materiasRegistradas) {
+            JCheckBox chk = new JCheckBox(m.getNombre() + "  (" + m.getGrupos().size() + " grupos)");
+            chk.putClientProperty("materia", m);
+            chk.addItemListener(e -> {
+                long seleccionadas = checkboxes.stream().filter(JCheckBox::isSelected).count();
+                if (seleccionadas > MAX_MATERIAS_SELECCIONABLES) {
+                    chk.setSelected(false);
+                    JOptionPane.showMessageDialog(dialogo, "Máximo " + MAX_MATERIAS_SELECCIONABLES + " materias tentativas.",
+                            "Límite alcanzado", JOptionPane.WARNING_MESSAGE);
+                } else {
+                    lblContador.setText("Seleccionadas: " + checkboxes.stream().filter(JCheckBox::isSelected).count()
+                            + " / " + MAX_MATERIAS_SELECCIONABLES);
+                }
+            });
+            checkboxes.add(chk);
+            panelMaterias.add(chk);
+        }
+
+        JScrollPane scrollMaterias = new JScrollPane(panelMaterias);
+        scrollMaterias.setPreferredSize(new Dimension(360, 220));
+        scrollMaterias.setBorder(BorderFactory.createTitledBorder("1. ¿Qué materias piensas cursar? (máx. " + MAX_MATERIAS_SELECCIONABLES + ")"));
+
+        JPanel panelSeleccion = new JPanel(new BorderLayout());
+        panelSeleccion.add(scrollMaterias, BorderLayout.CENTER);
+        panelSeleccion.add(lblContador, BorderLayout.SOUTH);
+
+        // --- Cantidad de horarios a generar ---
+        JPanel panelCantidad = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        panelCantidad.setBorder(BorderFactory.createTitledBorder("2. ¿Cuántos horarios distintos quieres generar?"));
+        JSpinner spinnerCantidad = new JSpinner(new SpinnerNumberModel(1, 1, MAX_HORARIOS_GENERABLES, 1));
+        panelCantidad.add(new JLabel("Cantidad (máx. " + MAX_HORARIOS_GENERABLES + "):"));
+        panelCantidad.add(spinnerCantidad);
+
+        // --- Horas libres máximas permitidas por día ---
+        JPanel panelHuecos = new JPanel(new BorderLayout(5, 0));
+        panelHuecos.setBorder(BorderFactory.createTitledBorder("3. ¿Cuántas horas libres al día toleras como máximo?"));
+        JSlider sliderHuecos = new JSlider(JSlider.HORIZONTAL, 0, MAX_HORAS_LIBRES_PERMITIDAS, 1);
+        sliderHuecos.setMajorTickSpacing(1);
+        sliderHuecos.setPaintTicks(true);
+        sliderHuecos.setPaintLabels(true);
+        sliderHuecos.setSnapToTicks(true);
+        JLabel lblHuecos = new JLabel("Horas libres máximas: 1", SwingConstants.CENTER);
+        sliderHuecos.addChangeListener(e -> lblHuecos.setText("Horas libres máximas: " + sliderHuecos.getValue()));
+        panelHuecos.add(lblHuecos, BorderLayout.NORTH);
+        panelHuecos.add(sliderHuecos, BorderLayout.CENTER);
+
+        // --- Destino ---
+        JPanel panelDestino = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        panelDestino.setBorder(BorderFactory.createTitledBorder("4. ¿Dónde quieres el/los resultado(s)?"));
+        JRadioButton radioNuevo = new JRadioButton("Crear borrador(es) nuevo(s)", true);
+        JRadioButton radioActual = new JRadioButton("Llenar el borrador actualmente abierto (solo 1 horario)");
+        ButtonGroup grupoDestino = new ButtonGroup();
+        grupoDestino.add(radioNuevo);
+        grupoDestino.add(radioActual);
+        panelDestino.add(radioNuevo);
+        panelDestino.add(radioActual);
+
+        JPanel panelCentro = new JPanel();
+        panelCentro.setLayout(new BoxLayout(panelCentro, BoxLayout.Y_AXIS));
+        panelCentro.add(panelCantidad);
+        panelCentro.add(panelHuecos);
+        panelCentro.add(panelDestino);
+
+        dialogo.add(panelSeleccion, BorderLayout.CENTER);
+
+        JButton btnGenerar = new JButton("Generar Horario(s)");
+        JButton btnCancelar = new JButton("Cancelar");
+        JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        panelBotones.add(btnCancelar);
+        panelBotones.add(btnGenerar);
+
+        JPanel panelSur = new JPanel(new BorderLayout());
+        panelSur.add(panelCentro, BorderLayout.NORTH);
+        panelSur.add(panelBotones, BorderLayout.SOUTH);
+        dialogo.add(panelSur, BorderLayout.SOUTH);
+
+        btnCancelar.addActionListener(e -> dialogo.dispose());
+        btnGenerar.addActionListener(e -> {
+            List<Materia> seleccionadas = new ArrayList<>();
+            for (JCheckBox chk : checkboxes) {
+                if (chk.isSelected()) seleccionadas.add((Materia) chk.getClientProperty("materia"));
+            }
+            if (seleccionadas.isEmpty()) {
+                JOptionPane.showMessageDialog(dialogo, "Selecciona al menos una materia.", "Aviso", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            int cantidad = (Integer) spinnerCantidad.getValue();
+            boolean usarActual = radioActual.isSelected();
+            if (usarActual) cantidad = 1; // solo cabe un horario en el borrador actual
+            int limiteHuecos = sliderHuecos.getValue();
+
+            dialogo.dispose();
+            ejecutarModoRapido(seleccionadas, cantidad, usarActual, limiteHuecos);
+        });
+
+        dialogo.pack();
+        dialogo.setLocationRelativeTo(this);
+        dialogo.setVisible(true);
+    }
+
+    private void ejecutarModoRapido(List<Materia> materiasSeleccionadas, int cantidad, boolean usarBorradorActual, int limiteHuecos) {
+        List<String> materiasSinGruposDisponibles = new ArrayList<>();
+        List<Materia> materiasConGrupos = new ArrayList<>();
+
+        for (Materia m : materiasSeleccionadas) {
+            boolean tieneDisponible = false;
+            for (Grupo g : m.getGrupos()) {
+                if (g.isDisponible()) { tieneDisponible = true; break; }
+            }
+            if (tieneDisponible) materiasConGrupos.add(m);
+            else materiasSinGruposDisponibles.add(m.getNombre());
+        }
+
+        if (materiasConGrupos.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Ninguna de las materias seleccionadas tiene grupos disponibles.",
+                    "No se pudo generar", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        List<List<Grupo>> combinaciones = generarCombinacionesRapidas(materiasConGrupos, cantidad, limiteHuecos);
+
+        if (combinaciones.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No se encontró ningún horario sin choques con un máximo de " + limiteHuecos + " hora(s) libre(s) al día.\n" +
+                    "Sugerencia: sube el control de 'horas libres máximas' e inténtalo de nuevo, o revisa si hay grupos " +
+                    "marcados como llenos que podrías liberar.",
+                    "Sin resultados con este límite", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (usarBorradorActual) {
+            int indexTab = tabbedPaneHorarios.getSelectedIndex();
+            if (indexTab < 0) {
+                JOptionPane.showMessageDialog(this, "No hay ningún borrador abierto.", "Aviso", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            HorarioBorrador borradorActivo = borradores.get(indexTab);
+            borradorActivo.getGruposActivos().clear();
+            borradorActivo.getGruposActivos().addAll(combinaciones.get(0));
+            GestorPersistencia.guardar(materiasRegistradas, borradores);
+            reconstruirPestanias();
+            tabbedPaneHorarios.setSelectedIndex(indexTab);
+        } else {
+            int primerIndiceNuevo = borradores.size();
+            for (int i = 0; i < combinaciones.size(); i++) {
+                String nombre = nombreBorradorRapidoDisponible(i + 1);
+                HorarioBorrador nuevo = new HorarioBorrador(nombre);
+                nuevo.getGruposActivos().addAll(combinaciones.get(i));
+                borradores.add(nuevo);
+            }
+            GestorPersistencia.guardar(materiasRegistradas, borradores);
+            reconstruirPestanias();
+            tabbedPaneHorarios.setSelectedIndex(primerIndiceNuevo);
+        }
+
+        StringBuilder mensaje = new StringBuilder();
+        mensaje.append("Se generaron ").append(combinaciones.size()).append(" horario(s) correctamente.");
+        if (!materiasSinGruposDisponibles.isEmpty()) {
+            mensaje.append("\n\nNo se pudieron incluir estas materias (sin grupos disponibles):\n");
+            for (String nombre : materiasSinGruposDisponibles) mensaje.append("• ").append(nombre).append("\n");
+        }
+        JOptionPane.showMessageDialog(this, mensaje.toString(), "Modo Rápido",
+                materiasSinGruposDisponibles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    private String nombreBorradorRapidoDisponible(int numeroBase) {
+        Set<String> nombresExistentes = new HashSet<>();
+        for (HorarioBorrador b : borradores) nombresExistentes.add(b.getNombre());
+
+        int n = numeroBase;
+        String candidato;
+        do {
+            candidato = "Rápido " + n;
+            n++;
+        } while (nombresExistentes.contains(candidato));
+        return candidato;
+    }
+
+    /**
+     * Genera hasta 'cantidadDeseada' combinaciones distintas de un grupo por materia,
+     * sin choques de horario entre ellos y con un total de horas muertas por día
+     * MENOR O IGUAL al límite indicado por el usuario. Usa orden aleatorizado en
+     * cada intento para obtener variedad (modo rápido: no pondera dificultad de
+     * maestro/materia, solo huecos y disponibilidad).
+     */
+    private List<List<Grupo>> generarCombinacionesRapidas(List<Materia> materias, int cantidadDeseada, int limiteHuecos) {
+        List<List<Grupo>> resultados = new ArrayList<>();
+        Set<String> firmasVistas = new HashSet<>();
+        Random rnd = new Random();
+
+        int intentosMax = 500; // límite de seguridad para no ciclar indefinidamente
+        for (int intento = 0; intento < intentosMax && resultados.size() < cantidadDeseada; intento++) {
+            List<Grupo> combinacion = new ArrayList<>();
+            boolean encontrada = backtrackCombinacion(materias, 0, combinacion, rnd, limiteHuecos);
+            if (encontrada) {
+                String firma = firmaDeCombinacion(combinacion);
+                if (firmasVistas.add(firma)) {
+                    resultados.add(new ArrayList<>(combinacion));
+                }
+            }
+        }
+        return resultados;
+    }
+
+    private boolean backtrackCombinacion(List<Materia> materias, int indice, List<Grupo> actual, Random rnd, int limiteHuecos) {
+        if (indice == materias.size()) {
+            // Combinación completa: solo es válida si el total de horas muertas no rebasa el límite
+            return calcularHorasMuertas(actual) <= limiteHuecos;
+        }
+
+        List<Grupo> candidatos = new ArrayList<>();
+        for (Grupo g : materias.get(indice).getGrupos()) {
+            if (g.isDisponible()) candidatos.add(g);
+        }
+        Collections.shuffle(candidatos, rnd);
+
+        for (Grupo g : candidatos) {
+            boolean choca = false;
+            for (Grupo existente : actual) {
+                if (existente.chocaCon(g)) { choca = true; break; }
+            }
+            if (!choca) {
+                actual.add(g);
+                if (backtrackCombinacion(materias, indice + 1, actual, rnd, limiteHuecos)) return true;
+                actual.remove(actual.size() - 1);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Calcula el total de horas muertas (celdas vacías entre la primera y la
+     * última clase) sumadas de todos los días de la combinación. El Sábado se
+     * ignora porque la parrilla del horario no lo utiliza.
+     */
+    private int calcularHorasMuertas(List<Grupo> combinacion) {
+        Map<DiaSemana, TreeSet<Integer>> horasPorDia = new EnumMap<>(DiaSemana.class);
+
+        for (Grupo g : combinacion) {
+            for (DiaSemana d : g.getDias()) {
+                if (d == DiaSemana.SABADO) continue;
+                horasPorDia.computeIfAbsent(d, k -> new TreeSet<>()).add(g.getHoraInicio());
+            }
+        }
+
+        int totalHuecos = 0;
+        for (TreeSet<Integer> horas : horasPorDia.values()) {
+            if (horas.isEmpty()) continue;
+            int minHora = horas.first();
+            int maxHora = horas.last();
+            int rangoEsperado = maxHora - minHora + 1;
+            totalHuecos += (rangoEsperado - horas.size());
+        }
+        return totalHuecos;
+    }
+
+    private String firmaDeCombinacion(List<Grupo> combinacion) {
+        List<String> claves = new ArrayList<>();
+        for (Grupo g : combinacion) {
+            claves.add(g.getMateriaPadre().getNombre() + "#" + g.getClaveGrupo());
+        }
+        Collections.sort(claves);
+        return String.join("|", claves);
     }
 
     private void crearMateria() {
@@ -513,14 +843,23 @@ public class VistaPrincipal extends JFrame {
                 Grupo g = (Grupo) value;
                 Materia m = g.getMateriaPadre();
 
-                setText(m != null
+                String textoBase = m != null
                         ? m.getNombre() + " [" + g.getClaveGrupo() + "] - " + g.getProfesor()
                             + " (" + g.getHoraInicio() + ":00 hrs)"
-                        : g.toString());
+                        : g.toString();
 
-                if (!isSelected && m != null) {
-                    c.setBackground(colorSuave(m.getColor()));
-                    c.setForeground(Color.DARK_GRAY);
+                if (!g.isDisponible()) {
+                    setText("<html><strike>" + textoBase + "</strike> &nbsp;<b>[LLENO]</b></html>");
+                    if (!isSelected) {
+                        c.setBackground(new Color(255, 210, 210));
+                        c.setForeground(new Color(150, 30, 30));
+                    }
+                } else {
+                    setText(textoBase);
+                    if (!isSelected && m != null) {
+                        c.setBackground(colorSuave(m.getColor()));
+                        c.setForeground(Color.DARK_GRAY);
+                    }
                 }
             }
             return c;
