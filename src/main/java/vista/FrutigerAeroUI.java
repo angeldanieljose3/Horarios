@@ -77,8 +77,58 @@ public final class FrutigerAeroUI {
             g2.setPaint(new GradientPaint(0, 0, new Color(255, 255, 255, 130), 0, h * 0.35f, new Color(255, 255, 255, 0)));
             g2.fillRect(0, 0, w, (int) (h * 0.35));
 
+            // Burbujas decorativas tipo vidrio, agrupadas hacia abajo-derecha
+            pintarBurbujas(g2, w, h);
+
             g2.dispose();
             super.paintComponent(g);
+        }
+
+        /**
+         * Dibuja un pequeño grupo de burbujas traslúcidas en la esquina inferior
+         * derecha del panel, imitando el detalle decorativo típico del estilo
+         * Frutiger Aero. Las posiciones/tamaños son relativos al ancho y alto
+         * del panel para que se vean bien sin importar el tamaño de la ventana.
+         */
+        private void pintarBurbujas(Graphics2D g2, int w, int h) {
+            // Cada fila: {offsetDesdeDerecha, offsetDesdeAbajo, diametro}
+            int[][] burbujas = {
+                { 30,  10, 120 },
+                { 130, -30, 175 },
+                { 220,  70,  70 },
+                { 10,  150,  55 },
+                { 170, 160,  45 },
+                { 60,  230,  30 },
+            };
+            for (int[] b : burbujas) {
+                int diametro = b[2];
+                int cx = w - b[0] - diametro / 2;
+                int cy = h - b[1] - diametro / 2;
+                dibujarBurbuja(g2, cx, cy, diametro);
+            }
+        }
+
+        private void dibujarBurbuja(Graphics2D g2, int cx, int cy, int diametro) {
+            int r = diametro / 2;
+
+            // Relleno tipo vidrio: degradado radial que se desvanece hacia afuera,
+            // con el "punto caliente" desplazado arriba-izquierda para simular brillo.
+            RadialGradientPaint relleno = new RadialGradientPaint(
+                    new Point(cx - r / 3, cy - r / 3), diametro,
+                    new float[]{0f, 0.7f, 1f},
+                    new Color[]{
+                        new Color(255, 255, 255, 145),
+                        new Color(255, 255, 255, 70),
+                        new Color(255, 255, 255, 18)
+                    }
+            );
+            g2.setPaint(relleno);
+            g2.fillOval(cx - r, cy - r, diametro, diametro);
+
+            // Contorno sutil para que la burbuja se distinga del fondo
+            g2.setColor(new Color(255, 255, 255, 110));
+            g2.setStroke(new BasicStroke(1.2f));
+            g2.drawOval(cx - r, cy - r, diametro, diametro);
         }
     }
 
@@ -186,5 +236,14 @@ public final class FrutigerAeroUI {
         tabla.setSelectionBackground(CIELO_MEDIO);
         tabla.setSelectionForeground(TEXTO_OSCURO);
         tabla.setGridColor(CIELO_MEDIO);
+    }
+
+    // =======================================================
+    // VOLVER TRANSPARENTE UN JScrollPane (para que las burbujas del
+    // PanelCielo se vean a través del área vacía de tablas y listas)
+    // =======================================================
+    public static void hacerTransparente(JScrollPane scroll) {
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
     }
 }

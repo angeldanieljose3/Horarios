@@ -26,7 +26,9 @@ public class Materia implements Serializable {
     }
 
     public String getNombre() { return nombre; }
+    public void setNombre(String nombre) { this.nombre = nombre; }
     public Color getColor() { return color; }
+    public void setColor(Color color) { this.color = color; }
     public List<Grupo> getGrupos() { return grupos; }
     public int getDificultad() { return dificultad; }
     public void setDificultad(int dificultad) { this.dificultad = dificultad; }

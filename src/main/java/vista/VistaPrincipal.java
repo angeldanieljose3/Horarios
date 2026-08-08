@@ -11,6 +11,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.imageio.ImageIO;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -62,10 +63,56 @@ public class VistaPrincipal extends JFrame {
                 crearPanelDerecho()
         );
         splitPane.setDividerLocation(480);
+        splitPane.setOpaque(false); // deja ver el fondo con burbujas de los paneles hijos
         add(splitPane, BorderLayout.CENTER);
 
         actualizarCombosYListas();
         reconstruirPestanias();
+
+        configurarAtajoDeshacer();
+    }
+
+    // =======================================================
+    // DESHACER (Ctrl+Z) — pila básica de últimas acciones destructivas
+    // =======================================================
+
+    private static class AccionDeshacer {
+        final String descripcion;
+        final Runnable comoDeshacer;
+        AccionDeshacer(String descripcion, Runnable comoDeshacer) {
+            this.descripcion = descripcion;
+            this.comoDeshacer = comoDeshacer;
+        }
+    }
+
+    private final Deque<AccionDeshacer> pilaDeshacer = new ArrayDeque<>();
+    private static final int MAX_ACCIONES_DESHACER = 10;
+
+    private void configurarAtajoDeshacer() {
+        KeyStroke ctrlZ = KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK);
+        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(ctrlZ, "deshacerAccion");
+        getRootPane().getActionMap().put("deshacerAccion", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { deshacerUltimaAccion(); }
+        });
+    }
+
+    /** Guarda cómo revertir una acción destructiva. Se llama justo ANTES de aplicar el cambio. */
+    private void registrarParaDeshacer(String descripcion, Runnable comoDeshacer) {
+        pilaDeshacer.push(new AccionDeshacer(descripcion, comoDeshacer));
+        while (pilaDeshacer.size() > MAX_ACCIONES_DESHACER) pilaDeshacer.removeLast();
+    }
+
+    private void deshacerUltimaAccion() {
+        if (pilaDeshacer.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No hay ninguna acción reciente para deshacer.",
+                    "Deshacer", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        AccionDeshacer accion = pilaDeshacer.pop();
+        accion.comoDeshacer.run();
+        GestorPersistencia.guardar(materiasRegistradas, borradores);
+        reconstruirPestanias();
+        JOptionPane.showMessageDialog(this, "Se deshizo: " + accion.descripcion, "Deshacer", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private JPanel crearPanelIzquierdo() {
@@ -192,7 +239,9 @@ public class VistaPrincipal extends JFrame {
         JPanel panelCatalogo = new JPanel(new BorderLayout(0, 5));
         panelCatalogo.setOpaque(false);
         panelCatalogo.add(panelFiltroCatalogo, BorderLayout.NORTH);
-        panelCatalogo.add(new JScrollPane(listGrupos), BorderLayout.CENTER);
+        JScrollPane scrollCatalogo = new JScrollPane(listGrupos);
+        FrutigerAeroUI.hacerTransparente(scrollCatalogo);
+        panelCatalogo.add(scrollCatalogo, BorderLayout.CENTER);
 
         panel.add(panelCatalogo, BorderLayout.CENTER);
 
@@ -219,8 +268,18 @@ public class VistaPrincipal extends JFrame {
         JPanel panel = new FrutigerAeroUI.PanelCielo(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        JPanel panelTopBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // Dos filas FIJAS en vez de un solo FlowLayout: así nunca se recorta un
+        // botón por el bug de Swing donde BorderLayout.NORTH no crece cuando un
+        // FlowLayout envuelve su contenido a una segunda línea.
+        JPanel panelFila1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        panelFila1.setOpaque(false);
+        JPanel panelFila2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        panelFila2.setOpaque(false);
+
+        JPanel panelTopBar = new JPanel(new GridLayout(2, 1, 0, 0));
         panelTopBar.setOpaque(false);
+        panelTopBar.add(panelFila1);
+        panelTopBar.add(panelFila2);
 
         JButton btnNuevoBorrador = new FrutigerAeroUI.BotonGlossy("+ Nuevo Borrador", FrutigerAeroUI.AGUA_PROFUNDA);
         btnNuevoBorrador.addActionListener(e -> crearNuevoBorrador());
@@ -237,11 +296,20 @@ public class VistaPrincipal extends JFrame {
         JButton btnHorarioOptimo = new FrutigerAeroUI.BotonGlossy("🏆 Horario Óptimo", FrutigerAeroUI.VERDE_HOJA);
         btnHorarioOptimo.addActionListener(e -> mostrarDialogoHorarioOptimo());
 
-        panelTopBar.add(btnNuevoBorrador);
-        panelTopBar.add(btnEliminarBorrador);
-        panelTopBar.add(btnExportarJPG);
-        panelTopBar.add(btnModoRapido);
-        panelTopBar.add(btnHorarioOptimo);
+        JButton btnDeshacer = new FrutigerAeroUI.BotonGlossy("↩ Deshacer (Ctrl+Z)", FrutigerAeroUI.CIELO_MEDIO.darker());
+        btnDeshacer.addActionListener(e -> deshacerUltimaAccion());
+
+        JButton btnComparar = new FrutigerAeroUI.BotonGlossy("⚖ Comparar Borradores", FrutigerAeroUI.AGUA_PROFUNDA.darker());
+        btnComparar.addActionListener(e -> mostrarDialogoCompararBorradores());
+
+        panelFila1.add(btnNuevoBorrador);
+        panelFila1.add(btnEliminarBorrador);
+        panelFila1.add(btnExportarJPG);
+        panelFila1.add(btnModoRapido);
+        panelFila1.add(btnHorarioOptimo);
+
+        panelFila2.add(btnDeshacer);
+        panelFila2.add(btnComparar);
         panel.add(panelTopBar, BorderLayout.NORTH);
 
         tabbedPaneHorarios = new JTabbedPane();
@@ -270,6 +338,7 @@ public class VistaPrincipal extends JFrame {
 
         JTable tablaHorario = new JTable(modelHorario);
         tablaHorario.setRowHeight(32);
+        tablaHorario.setOpaque(false); // deja ver las burbujas del fondo en celdas vacías
         tablaHorario.getTableHeader().setReorderingAllowed(false);
         tablaHorario.setDefaultRenderer(Object.class, new RenderizadorColorTabla());
 
@@ -281,6 +350,7 @@ public class VistaPrincipal extends JFrame {
 
         JScrollPane scrollHorario = new JScrollPane(tablaHorario);
         scrollHorario.setBorder(FrutigerAeroUI.bordeTitulado("Parrilla Semanal"));
+        FrutigerAeroUI.hacerTransparente(scrollHorario);
 
         String[] colResumen = {"Materia", "Grupo", "Profesor", "Horario", "Días"};
         DefaultTableModel modelResumen = new DefaultTableModel(colResumen, 0) {
@@ -295,24 +365,232 @@ public class VistaPrincipal extends JFrame {
 
         JScrollPane scrollResumen = new JScrollPane(tablaResumen);
         scrollResumen.setBorder(FrutigerAeroUI.bordeTitulado("Resumen de Materias"));
+        FrutigerAeroUI.hacerTransparente(scrollResumen);
 
         renderizarParrillaYResumen(borrador, modelHorario, modelResumen);
 
         JSplitPane splitVer = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollHorario, scrollResumen);
         splitVer.setResizeWeight(0.80);
         splitVer.setDividerLocation(480);
+        splitVer.setOpaque(false); // clave: sin esto, el split pintaba su fondo opaco y tapaba las burbujas
 
         panel.add(splitVer, BorderLayout.CENTER);
 
         JButton btnVaciar = new FrutigerAeroUI.BotonGlossy("Vaciar " + borrador.getNombre(), FrutigerAeroUI.ROJO_CORAL);
         btnVaciar.addActionListener(e -> {
+            if (borrador.getGruposActivos().isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Este borrador ya está vacío.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            List<Grupo> respaldo = new ArrayList<>(borrador.getGruposActivos());
+            registrarParaDeshacer("Vaciar borrador \"" + borrador.getNombre() + "\" (" + respaldo.size() + " grupo(s))", () -> {
+                borrador.getGruposActivos().clear();
+                borrador.getGruposActivos().addAll(respaldo);
+            });
             borrador.getGruposActivos().clear();
             GestorPersistencia.guardar(materiasRegistradas, borradores);
             renderizarParrillaYResumen(borrador, modelHorario, modelResumen);
         });
-        panel.add(btnVaciar, BorderLayout.SOUTH);
+
+        JButton btnRecalcular = new FrutigerAeroUI.BotonGlossy("🔁 Recalcular este Horario", FrutigerAeroUI.AGUA_PROFUNDA);
+        btnRecalcular.addActionListener(e -> mostrarDialogoRecalcular(borrador));
+
+        JPanel panelBotonesBorrador = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
+        panelBotonesBorrador.setOpaque(false);
+        panelBotonesBorrador.add(btnRecalcular);
+        panelBotonesBorrador.add(btnVaciar);
+        panel.add(panelBotonesBorrador, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    // =======================================================
+    // COMPARAR BORRADORES LADO A LADO
+    // =======================================================
+
+    private void mostrarDialogoCompararBorradores() {
+        if (borradores.size() < 2) {
+            JOptionPane.showMessageDialog(this,
+                    "Necesitas al menos 2 borradores para compararlos.\n" +
+                    "Genera otra opción con 'Modo Rápido' u 'Horario Óptimo', o crea un borrador nuevo.",
+                    "No hay suficientes borradores", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        JDialog dialogo = new JDialog(this, "Comparar Borradores", true);
+        FrutigerAeroUI.PanelCielo fondo = new FrutigerAeroUI.PanelCielo(new BorderLayout(10, 10));
+        fondo.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        dialogo.setContentPane(fondo);
+        dialogo.setLayout(new BorderLayout(10, 10));
+
+        // --- Selectores de qué borrador va en cada lado ---
+        JComboBox<HorarioBorrador> cbIzquierdo = new JComboBox<>(borradores.toArray(new HorarioBorrador[0]));
+        JComboBox<HorarioBorrador> cbDerecho = new JComboBox<>(borradores.toArray(new HorarioBorrador[0]));
+        cbIzquierdo.setSelectedIndex(0);
+        cbDerecho.setSelectedIndex(borradores.size() > 1 ? 1 : 0);
+
+        JPanel panelSelectores = new JPanel(new GridLayout(1, 2, 10, 0));
+        panelSelectores.setOpaque(false);
+
+        JPanel panelSelIzq = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        panelSelIzq.setOpaque(false);
+        panelSelIzq.add(new JLabel("Borrador A:"));
+        panelSelIzq.add(cbIzquierdo);
+
+        JPanel panelSelDer = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        panelSelDer.setOpaque(false);
+        panelSelDer.add(new JLabel("Borrador B:"));
+        panelSelDer.add(cbDerecho);
+
+        panelSelectores.add(panelSelIzq);
+        panelSelectores.add(panelSelDer);
+
+        // --- Contenedor central: se reconstruye cada vez que cambia un selector ---
+        JPanel panelComparacion = new JPanel(new GridLayout(1, 2, 10, 0));
+        panelComparacion.setOpaque(false);
+
+        Runnable actualizarComparacion = () -> {
+            panelComparacion.removeAll();
+            HorarioBorrador bIzq = (HorarioBorrador) cbIzquierdo.getSelectedItem();
+            HorarioBorrador bDer = (HorarioBorrador) cbDerecho.getSelectedItem();
+            panelComparacion.add(construirPanelComparativo(bIzq));
+            panelComparacion.add(construirPanelComparativo(bDer));
+            panelComparacion.revalidate();
+            panelComparacion.repaint();
+        };
+
+        cbIzquierdo.addActionListener(e -> actualizarComparacion.run());
+        cbDerecho.addActionListener(e -> actualizarComparacion.run());
+        actualizarComparacion.run();
+
+        JPanel panelNorte = new JPanel(new BorderLayout());
+        panelNorte.setOpaque(false);
+        panelNorte.add(panelSelectores, BorderLayout.NORTH);
+
+        dialogo.add(panelNorte, BorderLayout.NORTH);
+        dialogo.add(panelComparacion, BorderLayout.CENTER);
+
+        JButton btnCerrar = new FrutigerAeroUI.BotonGlossy("Cerrar", FrutigerAeroUI.ROJO_CORAL);
+        btnCerrar.addActionListener(e -> dialogo.dispose());
+        JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        panelBotones.setOpaque(false);
+        panelBotones.add(btnCerrar);
+        dialogo.add(panelBotones, BorderLayout.SOUTH);
+
+        dialogo.setSize(1100, 650);
+        dialogo.setLocationRelativeTo(this);
+        dialogo.setVisible(true);
+    }
+
+    /** Panel de solo lectura con la parrilla + resumen + estadísticas rápidas de un borrador, para comparar. */
+    private JPanel construirPanelComparativo(HorarioBorrador borrador) {
+        JPanel panel = new FrutigerAeroUI.PanelCielo(new BorderLayout(5, 5));
+        panel.setBorder(FrutigerAeroUI.bordeTitulado(borrador.getNombre()));
+
+        String[] colHorario = {"Hora", "LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"};
+        DefaultTableModel modelHorario = new DefaultTableModel(colHorario, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable tablaHorario = new JTable(modelHorario);
+        tablaHorario.setRowHeight(28);
+        tablaHorario.setOpaque(false); // deja ver las burbujas del fondo en celdas vacías
+        tablaHorario.getTableHeader().setReorderingAllowed(false);
+        tablaHorario.setDefaultRenderer(Object.class, new RenderizadorColorTabla());
+        DefaultTableCellRenderer centradoRenderer = new DefaultTableCellRenderer();
+        centradoRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        tablaHorario.getColumnModel().getColumn(0).setCellRenderer(centradoRenderer);
+        FrutigerAeroUI.estilizarHeaderTabla(tablaHorario);
+
+        String[] colResumen = {"Materia", "Grupo", "Profesor", "Horario", "Días"};
+        DefaultTableModel modelResumen = new DefaultTableModel(colResumen, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable tablaResumen = new JTable(modelResumen);
+        tablaResumen.setRowHeight(18);
+        tablaResumen.getTableHeader().setReorderingAllowed(false);
+        FrutigerAeroUI.estilizarHeaderTabla(tablaResumen);
+
+        renderizarParrillaYResumen(borrador, modelHorario, modelResumen);
+
+        JScrollPane scrollHorario = new JScrollPane(tablaHorario);
+        scrollHorario.setBorder(FrutigerAeroUI.bordeTitulado("Parrilla"));
+        FrutigerAeroUI.hacerTransparente(scrollHorario);
+        JScrollPane scrollResumen = new JScrollPane(tablaResumen);
+        scrollResumen.setBorder(FrutigerAeroUI.bordeTitulado("Resumen"));
+        FrutigerAeroUI.hacerTransparente(scrollResumen);
+
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollHorario, scrollResumen);
+        split.setResizeWeight(0.75);
+        split.setOpaque(false);
+
+        // --- Estadísticas rápidas para decidir entre opciones ---
+        int totalMaterias = borrador.getGruposActivos().size();
+        int huecos = calcularHorasMuertas(borrador.getGruposActivos());
+        int dificultadTotal = calcularDificultadTotal(borrador.getGruposActivos(), FuenteDificultad.AMBAS);
+
+        JLabel lblStats = new JLabel(String.format(
+                "<html><b>%d</b> materia(s) &nbsp;|&nbsp; <b>%d</b> hora(s) muerta(s)/día &nbsp;|&nbsp; <b>%d</b> puntos de dificultad (grupo+materia)</html>",
+                totalMaterias, huecos, dificultadTotal));
+        lblStats.setFont(FrutigerAeroUI.FUENTE_TITULO);
+        lblStats.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
+        lblStats.setHorizontalAlignment(SwingConstants.CENTER);
+        lblStats.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+
+        panel.add(lblStats, BorderLayout.NORTH);
+        panel.add(split, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    /**
+     * "Recalcular este Horario": mezcla de dos cosas —
+     *  1) avisa si algún grupo YA inscrito en este borrador quedó marcado como LLENO
+     *     (obsoleto) desde que se armó el horario, y
+     *  2) reabre el diálogo de Modo Rápido u Horario Óptimo (a elección del usuario)
+     *     con las materias de este borrador ya preseleccionadas, para que se puedan
+     *     agregar o quitar materias antes de regenerar.
+     */
+    private void mostrarDialogoRecalcular(HorarioBorrador borrador) {
+        if (borrador.getGruposActivos().isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Este borrador todavía no tiene grupos inscritos; no hay nada que recalcular.\n" +
+                    "Usa 'Modo Rápido' u 'Horario Óptimo' desde la barra superior para generarlo por primera vez.",
+                    "Nada que recalcular", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // 1) Detectar materias actuales y grupos que ya quedaron obsoletos (marcados como llenos)
+        Set<Materia> materiasEnBorrador = new LinkedHashSet<>();
+        List<Grupo> gruposObsoletos = new ArrayList<>();
+        for (Grupo g : borrador.getGruposActivos()) {
+            if (g.getMateriaPadre() != null) materiasEnBorrador.add(g.getMateriaPadre());
+            if (!g.isDisponible()) gruposObsoletos.add(g);
+        }
+
+        if (!gruposObsoletos.isEmpty()) {
+            StringBuilder msg = new StringBuilder("⚠ Este horario tiene ").append(gruposObsoletos.size())
+                    .append(" grupo(s) que ahora están marcados como LLENOS:\n\n");
+            for (Grupo g : gruposObsoletos) {
+                msg.append("• ").append(g.getMateriaPadre().getNombre()).append(" [").append(g.getClaveGrupo()).append("]\n");
+            }
+            msg.append("\nAl recalcular, el sistema NO volverá a usar esos grupos (ya no están disponibles).");
+            JOptionPane.showMessageDialog(this, msg.toString(), "Grupos obsoletos detectados", JOptionPane.WARNING_MESSAGE);
+        }
+
+        // 2) Elegir con qué método recalcular
+        Object[] opciones = {"⚡ Modo Rápido", "🏆 Horario Óptimo", "Cancelar"};
+        int eleccion = JOptionPane.showOptionDialog(this,
+                "¿Con qué método quieres recalcular \"" + borrador.getNombre() + "\"?\n" +
+                "Las materias que ya tenía este borrador van a quedar preseleccionadas; puedes agregar o quitar antes de generar.",
+                "Recalcular Horario", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, opciones, opciones[0]);
+
+        if (eleccion == 0) {
+            mostrarDialogoModoRapido(materiasEnBorrador, true);
+        } else if (eleccion == 1) {
+            mostrarDialogoHorarioOptimo(materiasEnBorrador, true);
+        }
+        // eleccion == 2 (Cancelar) o cerrar el diálogo: no hacer nada
     }
 
     private void renderizarParrillaYResumen(HorarioBorrador borrador, DefaultTableModel mHorario, DefaultTableModel mResumen) {
@@ -340,7 +618,9 @@ public class VistaPrincipal extends JFrame {
         for (Grupo g : gruposOrdenados) {
             String nombreMateria = (g.getMateriaPadre() != null) ? g.getMateriaPadre().getNombre() : "N/A";
             String clave = g.getClaveGrupo();
-            String profesor = g.getProfesor();
+            String profesorCrudo = g.getProfesor();
+            boolean sinDefinir = profesorCrudo == null || profesorCrudo.trim().isEmpty() || profesorCrudo.trim().equals("-");
+            String profesor = sinDefinir ? "Por definir" : profesorCrudo;
             String rangoHora = String.format("%02d:00 - %02d:00 hrs", g.getHoraInicio(), g.getHoraInicio() + 1);
 
             StringBuilder strDias = new StringBuilder();
@@ -487,17 +767,8 @@ public class VistaPrincipal extends JFrame {
             // 1. Guardar cambios en la MATERIA
             String nuevoNomMat = txtEditNombreMat.getText().trim();
             if (!nuevoNomMat.isEmpty()) {
-                try {
-                    java.lang.reflect.Field fNom = Materia.class.getDeclaredField("nombre");
-                    fNom.setAccessible(true);
-                    fNom.set(materiaSel, nuevoNomMat);
-
-                    java.lang.reflect.Field fCol = Materia.class.getDeclaredField("color");
-                    fCol.setAccessible(true);
-                    fCol.set(materiaSel, colorEditMateria[0]);
-                } catch (Exception ex) {
-                    // Fallback
-                }
+                materiaSel.setNombre(nuevoNomMat);
+                materiaSel.setColor(colorEditMateria[0]);
                 materiaSel.setSemestre((Integer) cbEditSemestreMat.getSelectedItem());
                 materiaSel.setDificultad((Integer) spinnerEditDifMat.getValue());
             }
@@ -514,25 +785,13 @@ public class VistaPrincipal extends JFrame {
                 if (chkV.isSelected()) nuevosDias.add(DiaSemana.VIERNES);
 
                 if (!nuevosDias.isEmpty()) {
-                    try {
-                        java.lang.reflect.Field fClave = Grupo.class.getDeclaredField("claveGrupo");
-                        fClave.setAccessible(true);
-                        fClave.set(grupoSel, nuevaClaveGrp);
-
-                        java.lang.reflect.Field fProf = Grupo.class.getDeclaredField("profesor");
-                        fProf.setAccessible(true);
-                        fProf.set(grupoSel, nuevoProf);
-
-                        java.lang.reflect.Field fHora = Grupo.class.getDeclaredField("horaInicio");
-                        fHora.setAccessible(true);
-                        fHora.setInt(grupoSel, cbEditHora.getSelectedIndex() + 7); // Guarda hora exacta
-
-                        java.lang.reflect.Field fDias = Grupo.class.getDeclaredField("dias");
-                        fDias.setAccessible(true);
-                        fDias.set(grupoSel, nuevosDias);
-                    } catch (Exception ex) {
-                        // Fallback
-                    }
+                    grupoSel.setClaveGrupo(nuevaClaveGrp);
+                    // Si el campo de profesor queda vacío, se guarda "-" (mismo criterio que el catálogo
+                    // inicial) para que el renderizador lo muestre consistentemente como "Por definir"
+                    // y la dificultad de ese grupo se mantenga en su valor neutral (por defecto 3).
+                    grupoSel.setProfesor(nuevoProf.isEmpty() ? "-" : nuevoProf);
+                    grupoSel.setHoraInicio(cbEditHora.getSelectedIndex() + 7); // Guarda hora exacta
+                    grupoSel.setDias(nuevosDias);
                     grupoSel.setDificultad((Integer) spinnerEditDifGrp.getValue()); // Guarda dificultad específica
                 }
             }
@@ -576,6 +835,12 @@ public class VistaPrincipal extends JFrame {
 
         int index = tabbedPaneHorarios.getSelectedIndex();
         if (index >= 0) {
+            HorarioBorrador eliminado = borradores.get(index);
+            int indiceRespaldo = index;
+            registrarParaDeshacer("Eliminar borrador \"" + eliminado.getNombre() + "\"", () -> {
+                int posicion = Math.min(indiceRespaldo, borradores.size());
+                borradores.add(posicion, eliminado);
+            });
             borradores.remove(index);
             GestorPersistencia.guardar(materiasRegistradas, borradores);
             reconstruirPestanias();
@@ -682,6 +947,16 @@ public class VistaPrincipal extends JFrame {
         }
 
         activos.add(seleccionado);
+
+        if (!removidos.isEmpty()) {
+            List<Grupo> removidosRespaldo = new ArrayList<>(removidos);
+            Grupo agregadoRespaldo = seleccionado;
+            registrarParaDeshacer("Reemplazo de " + removidosRespaldo.size() + " grupo(s) en \"" + borradorActivo.getNombre() + "\"", () -> {
+                activos.remove(agregadoRespaldo);
+                activos.addAll(removidosRespaldo);
+            });
+        }
+
         GestorPersistencia.guardar(materiasRegistradas, borradores);
 
         JPanel panelTab = (JPanel) tabbedPaneHorarios.getComponentAt(indexTab);
@@ -730,9 +1005,58 @@ public class VistaPrincipal extends JFrame {
     private static final int MAX_HORARIOS_GENERABLES = 5;
     private static final int MAX_HORAS_LIBRES_PERMITIDAS = 5;
     private static final int LIMITE_EXPLORACION_OPTIMO = 200_000;
+    private static final int HORA_LIMITE_MATUTINO = 14; // antes de las 14:00 = matutino, de 14:00 en adelante = vespertino
 
     private enum FuenteDificultad { GRUPO, MATERIA, AMBAS }
     private enum EstrategiaBalance { HUECOS_PRIMERO, DIFICULTAD_PRIMERO, INTERMEDIO }
+    private enum Turno { MATUTINO, VESPERTINO, MIXTO }
+
+    private boolean coincideConTurno(Grupo g, Turno turno) {
+        if (turno == Turno.MIXTO) return true;
+        boolean esMatutino = g.getHoraInicio() < HORA_LIMITE_MATUTINO;
+        return turno == Turno.MATUTINO ? esMatutino : !esMatutino;
+    }
+
+    /**
+     * Para cada materia (mismo orden que la lista recibida) arma la lista de
+     * grupos candidatos: solo los disponibles Y que coinciden con el turno
+     * elegido. El índice de la lista externa corresponde 1 a 1 con 'materias'.
+     */
+    private List<List<Grupo>> obtenerGruposFiltradosPorTurno(List<Materia> materias, Turno turno) {
+        List<List<Grupo>> resultado = new ArrayList<>();
+        for (Materia m : materias) {
+            List<Grupo> candidatos = new ArrayList<>();
+            for (Grupo g : m.getGrupos()) {
+                if (g.isDisponible() && coincideConTurno(g, turno)) candidatos.add(g);
+            }
+            resultado.add(candidatos);
+        }
+        return resultado;
+    }
+
+    /** Construye el panel de selección de turno reutilizable para ambos diálogos. */
+    private JPanel construirPanelTurno(String numeroSeccion, JRadioButton[] radiosOut) {
+        JPanel panelTurno = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        panelTurno.setOpaque(false);
+        panelTurno.setBorder(FrutigerAeroUI.bordeTitulado(numeroSeccion + ". ¿Qué turno prefieres?"));
+        JRadioButton radioMatutino = new JRadioButton("Matutino (antes de las " + HORA_LIMITE_MATUTINO + ":00)");
+        JRadioButton radioVespertino = new JRadioButton("Vespertino (" + HORA_LIMITE_MATUTINO + ":00 en adelante)");
+        JRadioButton radioMixto = new JRadioButton("Mixto (ambos)", true);
+        radioMatutino.setOpaque(false);
+        radioVespertino.setOpaque(false);
+        radioMixto.setOpaque(false);
+        ButtonGroup grupoTurno = new ButtonGroup();
+        grupoTurno.add(radioMatutino);
+        grupoTurno.add(radioVespertino);
+        grupoTurno.add(radioMixto);
+        panelTurno.add(radioMatutino);
+        panelTurno.add(radioVespertino);
+        panelTurno.add(radioMixto);
+        radiosOut[0] = radioMatutino;
+        radiosOut[1] = radioVespertino;
+        radiosOut[2] = radioMixto;
+        return panelTurno;
+    }
 
     /**
      * Crea un combobox de filtro de semestre reutilizable para las listas de
@@ -776,6 +1100,10 @@ public class VistaPrincipal extends JFrame {
     }
 
     private void mostrarDialogoModoRapido() {
+        mostrarDialogoModoRapido(null, false);
+    }
+
+    private void mostrarDialogoModoRapido(Set<Materia> preseleccionar, boolean forzarUsarBorradorActual) {
         if (materiasRegistradas.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Primero registra materias y grupos en el catálogo.",
                     "Sin materias", JOptionPane.INFORMATION_MESSAGE);
@@ -799,6 +1127,7 @@ public class VistaPrincipal extends JFrame {
             chk.setOpaque(false);
             chk.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
             chk.putClientProperty("materia", m);
+            if (preseleccionar != null && preseleccionar.contains(m)) chk.setSelected(true);
             chk.addItemListener(e -> {
                 long seleccionadas = checkboxes.stream().filter(JCheckBox::isSelected).count();
                 if (seleccionadas > MAX_MATERIAS_SELECCIONABLES) {
@@ -812,6 +1141,10 @@ public class VistaPrincipal extends JFrame {
             });
             checkboxes.add(chk);
             panelMaterias.add(chk);
+        }
+        if (preseleccionar != null && !preseleccionar.isEmpty()) {
+            lblContador.setText("Seleccionadas: " + checkboxes.stream().filter(JCheckBox::isSelected).count()
+                    + " / " + MAX_MATERIAS_SELECCIONABLES);
         }
 
         JComboBox<Integer> cbFiltroSemestreLista = crearComboFiltroSemestre();
@@ -835,16 +1168,19 @@ public class VistaPrincipal extends JFrame {
         panelSeleccion.add(scrollMaterias, BorderLayout.CENTER);
         panelSeleccion.add(lblContador, BorderLayout.SOUTH);
 
+        JRadioButton[] radiosTurnoRapido = new JRadioButton[3];
+        JPanel panelTurno = construirPanelTurno("2", radiosTurnoRapido);
+
         JPanel panelCantidad = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelCantidad.setOpaque(false);
-        panelCantidad.setBorder(FrutigerAeroUI.bordeTitulado("2. ¿Cuántos horarios distintos quieres generar?"));
+        panelCantidad.setBorder(FrutigerAeroUI.bordeTitulado("3. ¿Cuántos horarios distintos quieres generar?"));
         JSpinner spinnerCantidad = new JSpinner(new SpinnerNumberModel(1, 1, MAX_HORARIOS_GENERABLES, 1));
         panelCantidad.add(new JLabel("Cantidad (máx. " + MAX_HORARIOS_GENERABLES + "):"));
         panelCantidad.add(spinnerCantidad);
 
         JPanel panelHuecos = new JPanel(new BorderLayout(5, 0));
         panelHuecos.setOpaque(false);
-        panelHuecos.setBorder(FrutigerAeroUI.bordeTitulado("3. ¿Cuántas horas libres al día toleras como máximo?"));
+        panelHuecos.setBorder(FrutigerAeroUI.bordeTitulado("4. ¿Cuántas horas libres al día toleras como máximo?"));
         JSlider sliderHuecos = new JSlider(JSlider.HORIZONTAL, 0, MAX_HORAS_LIBRES_PERMITIDAS, 1);
         sliderHuecos.setOpaque(false);
         sliderHuecos.setMajorTickSpacing(1);
@@ -858,9 +1194,9 @@ public class VistaPrincipal extends JFrame {
 
         JPanel panelDestino = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelDestino.setOpaque(false);
-        panelDestino.setBorder(FrutigerAeroUI.bordeTitulado("4. ¿Dónde quieres el/los resultado(s)?"));
-        JRadioButton radioNuevo = new JRadioButton("Crear borrador(es) nuevo(s)", true);
-        JRadioButton radioActual = new JRadioButton("Llenar el borrador actualmente abierto (solo 1 horario)");
+        panelDestino.setBorder(FrutigerAeroUI.bordeTitulado("5. ¿Dónde quieres el/los resultado(s)?"));
+        JRadioButton radioNuevo = new JRadioButton("Crear borrador(es) nuevo(s)", !forzarUsarBorradorActual);
+        JRadioButton radioActual = new JRadioButton("Llenar el borrador actualmente abierto (solo 1 horario)", forzarUsarBorradorActual);
         radioNuevo.setOpaque(false);
         radioActual.setOpaque(false);
         ButtonGroup grupoDestino = new ButtonGroup();
@@ -872,6 +1208,7 @@ public class VistaPrincipal extends JFrame {
         JPanel panelCentro = new JPanel();
         panelCentro.setOpaque(false);
         panelCentro.setLayout(new BoxLayout(panelCentro, BoxLayout.Y_AXIS));
+        panelCentro.add(panelTurno);
         panelCentro.add(panelCantidad);
         panelCentro.add(panelHuecos);
         panelCentro.add(panelDestino);
@@ -906,9 +1243,12 @@ public class VistaPrincipal extends JFrame {
             boolean usarActual = radioActual.isSelected();
             if (usarActual) cantidad = 1;
             int limiteHuecos = sliderHuecos.getValue();
+            Turno turno = radiosTurnoRapido[0].isSelected() ? Turno.MATUTINO
+                    : radiosTurnoRapido[1].isSelected() ? Turno.VESPERTINO
+                    : Turno.MIXTO;
 
             dialogo.dispose();
-            ejecutarModoRapido(seleccionadas, cantidad, usarActual, limiteHuecos);
+            ejecutarModoRapido(seleccionadas, cantidad, usarActual, limiteHuecos, turno);
         });
 
         dialogo.pack();
@@ -916,31 +1256,33 @@ public class VistaPrincipal extends JFrame {
         dialogo.setVisible(true);
     }
 
-    private void ejecutarModoRapido(List<Materia> materiasSeleccionadas, int cantidad, boolean usarBorradorActual, int limiteHuecos) {
+    private void ejecutarModoRapido(List<Materia> materiasSeleccionadas, int cantidad, boolean usarBorradorActual, int limiteHuecos, Turno turno) {
         List<String> materiasSinGruposDisponibles = new ArrayList<>();
         List<Materia> materiasConGrupos = new ArrayList<>();
 
         for (Materia m : materiasSeleccionadas) {
             boolean tieneDisponible = false;
             for (Grupo g : m.getGrupos()) {
-                if (g.isDisponible()) { tieneDisponible = true; break; }
+                if (g.isDisponible() && coincideConTurno(g, turno)) { tieneDisponible = true; break; }
             }
             if (tieneDisponible) materiasConGrupos.add(m);
             else materiasSinGruposDisponibles.add(m.getNombre());
         }
 
         if (materiasConGrupos.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Ninguna de las materias seleccionadas tiene grupos disponibles.",
+            JOptionPane.showMessageDialog(this, "Ninguna de las materias seleccionadas tiene grupos disponibles en el turno elegido.",
                     "No se pudo generar", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        List<List<Grupo>> combinaciones = generarCombinacionesRapidas(materiasConGrupos, cantidad, limiteHuecos);
+        List<List<Grupo>> gruposPorMateria = obtenerGruposFiltradosPorTurno(materiasConGrupos, turno);
+        List<List<Grupo>> combinaciones = generarCombinacionesRapidas(gruposPorMateria, cantidad, limiteHuecos);
 
         if (combinaciones.isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                    "No se encontró ningún horario sin choques con un máximo de " + limiteHuecos + " hora(s) libre(s) al día.\n" +
-                    "Sugerencia: sube el control de 'horas libres máximas' e inténtalo de nuevo, o revisa si hay grupos " +
+                    "No se encontró ningún horario sin choques con un máximo de " + limiteHuecos + " hora(s) libre(s) al día"
+                    + (turno != Turno.MIXTO ? " en el turno seleccionado" : "") + ".\n" +
+                    "Sugerencia: sube el control de 'horas libres máximas', prueba con turno Mixto, o revisa si hay grupos " +
                     "marcados como llenos que podrías liberar.",
                     "Sin resultados con este límite", JOptionPane.WARNING_MESSAGE);
             return;
@@ -994,7 +1336,7 @@ public class VistaPrincipal extends JFrame {
         return candidato;
     }
 
-    private List<List<Grupo>> generarCombinacionesRapidas(List<Materia> materias, int cantidadDeseada, int limiteHuecos) {
+    private List<List<Grupo>> generarCombinacionesRapidas(List<List<Grupo>> gruposPorMateria, int cantidadDeseada, int limiteHuecos) {
         List<List<Grupo>> resultados = new ArrayList<>();
         Set<String> firmasVistas = new HashSet<>();
         Random rnd = new Random();
@@ -1002,7 +1344,7 @@ public class VistaPrincipal extends JFrame {
         int intentosMax = 500;
         for (int intento = 0; intento < intentosMax && resultados.size() < cantidadDeseada; intento++) {
             List<Grupo> combinacion = new ArrayList<>();
-            boolean encontrada = backtrackCombinacion(materias, 0, combinacion, rnd, limiteHuecos);
+            boolean encontrada = backtrackCombinacion(gruposPorMateria, 0, combinacion, rnd, limiteHuecos);
             if (encontrada) {
                 String firma = firmaDeCombinacion(combinacion);
                 if (firmasVistas.add(firma)) {
@@ -1013,15 +1355,12 @@ public class VistaPrincipal extends JFrame {
         return resultados;
     }
 
-    private boolean backtrackCombinacion(List<Materia> materias, int indice, List<Grupo> actual, Random rnd, int limiteHuecos) {
-        if (indice == materias.size()) {
+    private boolean backtrackCombinacion(List<List<Grupo>> gruposPorMateria, int indice, List<Grupo> actual, Random rnd, int limiteHuecos) {
+        if (indice == gruposPorMateria.size()) {
             return calcularHorasMuertas(actual) <= limiteHuecos;
         }
 
-        List<Grupo> candidatos = new ArrayList<>();
-        for (Grupo g : materias.get(indice).getGrupos()) {
-            if (g.isDisponible()) candidatos.add(g);
-        }
+        List<Grupo> candidatos = new ArrayList<>(gruposPorMateria.get(indice));
         Collections.shuffle(candidatos, rnd);
 
         for (Grupo g : candidatos) {
@@ -1031,7 +1370,7 @@ public class VistaPrincipal extends JFrame {
             }
             if (!choca) {
                 actual.add(g);
-                if (backtrackCombinacion(materias, indice + 1, actual, rnd, limiteHuecos)) return true;
+                if (backtrackCombinacion(gruposPorMateria, indice + 1, actual, rnd, limiteHuecos)) return true;
                 actual.remove(actual.size() - 1);
             }
         }
@@ -1069,6 +1408,10 @@ public class VistaPrincipal extends JFrame {
     }
 
     private void mostrarDialogoHorarioOptimo() {
+        mostrarDialogoHorarioOptimo(null, false);
+    }
+
+    private void mostrarDialogoHorarioOptimo(Set<Materia> preseleccionar, boolean forzarUsarBorradorActual) {
         if (materiasRegistradas.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Primero registra materias y grupos en el catálogo.",
                     "Sin materias", JOptionPane.INFORMATION_MESSAGE);
@@ -1092,6 +1435,7 @@ public class VistaPrincipal extends JFrame {
             chk.setOpaque(false);
             chk.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
             chk.putClientProperty("materia", m);
+            if (preseleccionar != null && preseleccionar.contains(m)) chk.setSelected(true);
             chk.addItemListener(e -> {
                 long seleccionadas = checkboxes.stream().filter(JCheckBox::isSelected).count();
                 if (seleccionadas > MAX_MATERIAS_SELECCIONABLES) {
@@ -1105,6 +1449,10 @@ public class VistaPrincipal extends JFrame {
             });
             checkboxes.add(chk);
             panelMaterias.add(chk);
+        }
+        if (preseleccionar != null && !preseleccionar.isEmpty()) {
+            lblContador.setText("Seleccionadas: " + checkboxes.stream().filter(JCheckBox::isSelected).count()
+                    + " / " + MAX_MATERIAS_SELECCIONABLES);
         }
 
         JComboBox<Integer> cbFiltroSemestreLista = crearComboFiltroSemestre();
@@ -1128,16 +1476,19 @@ public class VistaPrincipal extends JFrame {
         panelSeleccion.add(scrollMaterias, BorderLayout.CENTER);
         panelSeleccion.add(lblContador, BorderLayout.SOUTH);
 
+        JRadioButton[] radiosTurnoOptimo = new JRadioButton[3];
+        JPanel panelTurno = construirPanelTurno("2", radiosTurnoOptimo);
+
         JPanel panelCantidad = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelCantidad.setOpaque(false);
-        panelCantidad.setBorder(FrutigerAeroUI.bordeTitulado("2. ¿Cuántas de las mejores opciones quieres ver?"));
+        panelCantidad.setBorder(FrutigerAeroUI.bordeTitulado("3. ¿Cuántas de las mejores opciones quieres ver?"));
         JSpinner spinnerCantidad = new JSpinner(new SpinnerNumberModel(1, 1, MAX_HORARIOS_GENERABLES, 1));
         panelCantidad.add(new JLabel("Cantidad (máx. " + MAX_HORARIOS_GENERABLES + "):"));
         panelCantidad.add(spinnerCantidad);
 
         JPanel panelFuente = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelFuente.setOpaque(false);
-        panelFuente.setBorder(FrutigerAeroUI.bordeTitulado("3. ¿Dónde se toma la dificultad?"));
+        panelFuente.setBorder(FrutigerAeroUI.bordeTitulado("4. ¿Dónde se toma la dificultad?"));
         JRadioButton radioFuenteGrupo = new JRadioButton("Por grupo/profesor", true);
         JRadioButton radioFuenteMateria = new JRadioButton("Por materia");
         JRadioButton radioFuenteAmbas = new JRadioButton("Ambas (se suman)");
@@ -1154,7 +1505,7 @@ public class VistaPrincipal extends JFrame {
 
         JPanel panelEstrategia = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelEstrategia.setOpaque(false);
-        panelEstrategia.setBorder(FrutigerAeroUI.bordeTitulado("4. ¿Cómo se balancean huecos vs. dificultad?"));
+        panelEstrategia.setBorder(FrutigerAeroUI.bordeTitulado("5. ¿Cómo se balancean huecos vs. dificultad?"));
         JRadioButton radioHuecosPrimero = new JRadioButton("Priorizar menos huecos", true);
         JRadioButton radioDificultadPrimero = new JRadioButton("Priorizar menos dificultad");
         JRadioButton radioIntermedio = new JRadioButton("Punto intermedio (ambos pesan igual)");
@@ -1171,7 +1522,7 @@ public class VistaPrincipal extends JFrame {
 
         JPanel panelHuecos = new JPanel(new BorderLayout(5, 0));
         panelHuecos.setOpaque(false);
-        panelHuecos.setBorder(FrutigerAeroUI.bordeTitulado("5. Límite de horas libres (opcional)"));
+        panelHuecos.setBorder(FrutigerAeroUI.bordeTitulado("6. Límite de horas libres (opcional)"));
 
         JCheckBox chkLimitarHuecos = new JCheckBox("Limitar horas libres máximas al día");
         chkLimitarHuecos.setOpaque(false);
@@ -1203,9 +1554,9 @@ public class VistaPrincipal extends JFrame {
 
         JPanel panelDestino = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelDestino.setOpaque(false);
-        panelDestino.setBorder(FrutigerAeroUI.bordeTitulado("6. ¿Dónde quieres el/los resultado(s)?"));
-        JRadioButton radioNuevo = new JRadioButton("Crear borrador(es) nuevo(s)", true);
-        JRadioButton radioActual = new JRadioButton("Llenar el borrador actualmente abierto (solo el mejor)");
+        panelDestino.setBorder(FrutigerAeroUI.bordeTitulado("7. ¿Dónde quieres el/los resultado(s)?"));
+        JRadioButton radioNuevo = new JRadioButton("Crear borrador(es) nuevo(s)", !forzarUsarBorradorActual);
+        JRadioButton radioActual = new JRadioButton("Llenar el borrador actualmente abierto (solo el mejor)", forzarUsarBorradorActual);
         radioNuevo.setOpaque(false);
         radioActual.setOpaque(false);
         ButtonGroup grupoDestino = new ButtonGroup();
@@ -1217,6 +1568,7 @@ public class VistaPrincipal extends JFrame {
         JPanel panelCentro = new JPanel();
         panelCentro.setOpaque(false);
         panelCentro.setLayout(new BoxLayout(panelCentro, BoxLayout.Y_AXIS));
+        panelCentro.add(panelTurno);
         panelCentro.add(panelCantidad);
         panelCentro.add(panelFuente);
         panelCentro.add(panelEstrategia);
@@ -1263,9 +1615,12 @@ public class VistaPrincipal extends JFrame {
 
             boolean limitarHuecos = chkLimitarHuecos.isSelected();
             int limiteHuecos = sliderHuecosOptimo.getValue();
+            Turno turno = radiosTurnoOptimo[0].isSelected() ? Turno.MATUTINO
+                    : radiosTurnoOptimo[1].isSelected() ? Turno.VESPERTINO
+                    : Turno.MIXTO;
 
             dialogo.dispose();
-            ejecutarHorarioOptimo(seleccionadas, cantidad, usarActual, fuente, estrategia, limitarHuecos, limiteHuecos);
+            ejecutarHorarioOptimo(seleccionadas, cantidad, usarActual, fuente, estrategia, limitarHuecos, limiteHuecos, turno);
         });
 
         dialogo.pack();
@@ -1275,33 +1630,35 @@ public class VistaPrincipal extends JFrame {
 
     private void ejecutarHorarioOptimo(List<Materia> materiasSeleccionadas, int cantidad, boolean usarBorradorActual,
                                         FuenteDificultad fuente, EstrategiaBalance estrategia,
-                                        boolean limitarHuecos, int limiteHuecos) {
+                                        boolean limitarHuecos, int limiteHuecos, Turno turno) {
         List<String> materiasSinGruposDisponibles = new ArrayList<>();
         List<Materia> materiasConGrupos = new ArrayList<>();
 
         for (Materia m : materiasSeleccionadas) {
             boolean tieneDisponible = false;
             for (Grupo g : m.getGrupos()) {
-                if (g.isDisponible()) { tieneDisponible = true; break; }
+                if (g.isDisponible() && coincideConTurno(g, turno)) { tieneDisponible = true; break; }
             }
             if (tieneDisponible) materiasConGrupos.add(m);
             else materiasSinGruposDisponibles.add(m.getNombre());
         }
 
         if (materiasConGrupos.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Ninguna de las materias seleccionadas tiene grupos disponibles.",
+            JOptionPane.showMessageDialog(this, "Ninguna de las materias seleccionadas tiene grupos disponibles en el turno elegido.",
                     "No se pudo generar", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
+        List<List<Grupo>> gruposPorMateria = obtenerGruposFiltradosPorTurno(materiasConGrupos, turno);
         List<List<Grupo>> todasLasCombinaciones = new ArrayList<>();
         int[] contadorExploracion = {0};
-        enumerarCombinacionesValidas(materiasConGrupos, 0, new ArrayList<>(), todasLasCombinaciones, contadorExploracion);
+        enumerarCombinacionesValidas(gruposPorMateria, 0, new ArrayList<>(), todasLasCombinaciones, contadorExploracion);
 
         if (todasLasCombinaciones.isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                    "No fue posible encontrar ningún horario sin choques con las materias seleccionadas.\n" +
-                    "Prueba quitando alguna materia o liberando algún grupo marcado como lleno.",
+                    "No fue posible encontrar ningún horario sin choques con las materias seleccionadas"
+                    + (turno != Turno.MIXTO ? " en el turno elegido" : "") + ".\n" +
+                    "Prueba quitando alguna materia, cambiando el turno a Mixto, o liberando algún grupo marcado como lleno.",
                     "No se pudo generar", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -1384,26 +1741,24 @@ public class VistaPrincipal extends JFrame {
                 materiasSinGruposDisponibles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
     }
 
-    private void enumerarCombinacionesValidas(List<Materia> materias, int indice, List<Grupo> actual,
+    private void enumerarCombinacionesValidas(List<List<Grupo>> gruposPorMateria, int indice, List<Grupo> actual,
                                                List<List<Grupo>> resultados, int[] contadorExploracion) {
         if (contadorExploracion[0] >= LIMITE_EXPLORACION_OPTIMO) return;
 
-        if (indice == materias.size()) {
+        if (indice == gruposPorMateria.size()) {
             resultados.add(new ArrayList<>(actual));
             contadorExploracion[0]++;
             return;
         }
 
-        for (Grupo g : materias.get(indice).getGrupos()) {
-            if (!g.isDisponible()) continue;
-
+        for (Grupo g : gruposPorMateria.get(indice)) {
             boolean choca = false;
             for (Grupo existente : actual) {
                 if (existente.chocaCon(g)) { choca = true; break; }
             }
             if (!choca) {
                 actual.add(g);
-                enumerarCombinacionesValidas(materias, indice + 1, actual, resultados, contadorExploracion);
+                enumerarCombinacionesValidas(gruposPorMateria, indice + 1, actual, resultados, contadorExploracion);
                 actual.remove(actual.size() - 1);
                 if (contadorExploracion[0] >= LIMITE_EXPLORACION_OPTIMO) return;
             }
@@ -1477,7 +1832,11 @@ public class VistaPrincipal extends JFrame {
         if (dias.isEmpty()) return;
 
         int hInicio = cbHoraInicio.getSelectedIndex() + 7;
-        Grupo nuevoGrupo = new Grupo(clave, prof, hInicio, dias);
+        // Si el profesor se deja en blanco, se guarda como "-" (mismo criterio que el catálogo
+        // inicial y que la edición posterior): el catálogo lo mostrará como "Por definir" y,
+        // como no hay ningún profesor sobre el que juzgar, la dificultad se queda en su
+        // valor neutral por defecto (3 = media) salvo que el usuario la cambie a mano.
+        Grupo nuevoGrupo = new Grupo(clave, prof.isEmpty() ? "-" : prof, hInicio, dias);
         nuevoGrupo.setDificultad((Integer) spinnerDificultadGrupo.getValue());
         materiaSeleccionada.agregarGrupo(nuevoGrupo);
 
@@ -1557,8 +1916,12 @@ public class VistaPrincipal extends JFrame {
                 Grupo g = (Grupo) value;
                 Materia m = g.getMateriaPadre();
 
+                boolean profesorSinDefinir = g.getProfesor() == null || g.getProfesor().trim().isEmpty()
+                        || g.getProfesor().trim().equals("-");
+                String nombreProfesor = profesorSinDefinir ? "Por definir" : g.getProfesor();
+
                 String textoBase = m != null
-                        ? m.getNombre() + " (Sem." + m.getSemestre() + ") [" + g.getClaveGrupo() + "] - " + g.getProfesor()
+                        ? m.getNombre() + " (Sem." + m.getSemestre() + ") [" + g.getClaveGrupo() + "] - " + nombreProfesor
                             + " (" + g.getHoraInicio() + ":00 hrs) - Dif.Grupo:" + g.getDificultad() + " Dif.Mat:" + m.getDificultad()
                         : g.toString();
 
@@ -1589,12 +1952,16 @@ public class VistaPrincipal extends JFrame {
 
             if (value instanceof Grupo) {
                 Grupo g = (Grupo) value;
+                setOpaque(true);
                 c.setBackground(g.getMateriaPadre().getColor());
                 c.setForeground(Color.WHITE);
                 setText(g.getMateriaPadre().getNombre() + " (" + g.getClaveGrupo() + ")");
                 setHorizontalAlignment(SwingConstants.CENTER);
             } else {
-                c.setBackground(Color.WHITE);
+                // Celda vacía: transparente para que se vea el fondo con
+                // burbujas de PanelCielo a través de la parrilla.
+                setOpaque(false);
+                setText("");
                 c.setForeground(Color.BLACK);
             }
             return c;

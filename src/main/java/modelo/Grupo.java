@@ -22,9 +22,13 @@ public class Grupo implements Serializable {
     }
 
     public String getClaveGrupo() { return claveGrupo; }
+    public void setClaveGrupo(String claveGrupo) { this.claveGrupo = claveGrupo; }
     public String getProfesor() { return profesor; }
+    public void setProfesor(String profesor) { this.profesor = profesor; }
     public int getHoraInicio() { return horaInicio; }
+    public void setHoraInicio(int horaInicio) { this.horaInicio = horaInicio; }
     public Set<DiaSemana> getDias() { return dias; }
+    public void setDias(Set<DiaSemana> dias) { this.dias = dias; }
     public Materia getMateriaPadre() { return materiaPadre; }
     public void setMateriaPadre(Materia materiaPadre) { this.materiaPadre = materiaPadre; }
     public boolean isDisponible() { return disponible; }
