@@ -15,6 +15,8 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.util.*;
 import java.util.List;
 import java.util.Collections;
@@ -63,7 +65,6 @@ public class VistaPrincipal extends JFrame {
                 crearPanelDerecho()
         );
         splitPane.setDividerLocation(480);
-        splitPane.setOpaque(false); // deja ver el fondo con burbujas de los paneles hijos
         add(splitPane, BorderLayout.CENTER);
 
         actualizarCombosYListas();
@@ -239,9 +240,7 @@ public class VistaPrincipal extends JFrame {
         JPanel panelCatalogo = new JPanel(new BorderLayout(0, 5));
         panelCatalogo.setOpaque(false);
         panelCatalogo.add(panelFiltroCatalogo, BorderLayout.NORTH);
-        JScrollPane scrollCatalogo = new JScrollPane(listGrupos);
-        FrutigerAeroUI.hacerTransparente(scrollCatalogo);
-        panelCatalogo.add(scrollCatalogo, BorderLayout.CENTER);
+        panelCatalogo.add(new JScrollPane(listGrupos), BorderLayout.CENTER);
 
         panel.add(panelCatalogo, BorderLayout.CENTER);
 
@@ -290,6 +289,9 @@ public class VistaPrincipal extends JFrame {
         JButton btnExportarJPG = new FrutigerAeroUI.BotonGlossy("Exportar Horarios (JPG)", FrutigerAeroUI.CIELO_MEDIO.darker());
         btnExportarJPG.addActionListener(e -> exportarHorariosJPG());
 
+        JButton btnExportarPDF = new FrutigerAeroUI.BotonGlossy("Exportar Horarios (PDF)", FrutigerAeroUI.ROJO_CORAL.darker());
+        btnExportarPDF.addActionListener(e -> exportarHorariosPDF());
+
         JButton btnModoRapido = new FrutigerAeroUI.BotonGlossy("⚡ Modo Rápido", FrutigerAeroUI.NARANJA_SOL);
         btnModoRapido.addActionListener(e -> mostrarDialogoModoRapido());
 
@@ -302,6 +304,9 @@ public class VistaPrincipal extends JFrame {
         JButton btnComparar = new FrutigerAeroUI.BotonGlossy("⚖ Comparar Borradores", FrutigerAeroUI.AGUA_PROFUNDA.darker());
         btnComparar.addActionListener(e -> mostrarDialogoCompararBorradores());
 
+        JButton btnBorrarTodos = new FrutigerAeroUI.BotonGlossy("🗑 Borrar Todos los Horarios", FrutigerAeroUI.ROJO_CORAL);
+        btnBorrarTodos.addActionListener(e -> borrarTodosLosHorarios());
+
         panelFila1.add(btnNuevoBorrador);
         panelFila1.add(btnEliminarBorrador);
         panelFila1.add(btnExportarJPG);
@@ -310,6 +315,8 @@ public class VistaPrincipal extends JFrame {
 
         panelFila2.add(btnDeshacer);
         panelFila2.add(btnComparar);
+        panelFila2.add(btnExportarPDF);
+        panelFila2.add(btnBorrarTodos);
         panel.add(panelTopBar, BorderLayout.NORTH);
 
         tabbedPaneHorarios = new JTabbedPane();
@@ -338,7 +345,6 @@ public class VistaPrincipal extends JFrame {
 
         JTable tablaHorario = new JTable(modelHorario);
         tablaHorario.setRowHeight(32);
-        tablaHorario.setOpaque(false); // deja ver las burbujas del fondo en celdas vacías
         tablaHorario.getTableHeader().setReorderingAllowed(false);
         tablaHorario.setDefaultRenderer(Object.class, new RenderizadorColorTabla());
 
@@ -350,7 +356,6 @@ public class VistaPrincipal extends JFrame {
 
         JScrollPane scrollHorario = new JScrollPane(tablaHorario);
         scrollHorario.setBorder(FrutigerAeroUI.bordeTitulado("Parrilla Semanal"));
-        FrutigerAeroUI.hacerTransparente(scrollHorario);
 
         String[] colResumen = {"Materia", "Grupo", "Profesor", "Horario", "Días"};
         DefaultTableModel modelResumen = new DefaultTableModel(colResumen, 0) {
@@ -365,14 +370,12 @@ public class VistaPrincipal extends JFrame {
 
         JScrollPane scrollResumen = new JScrollPane(tablaResumen);
         scrollResumen.setBorder(FrutigerAeroUI.bordeTitulado("Resumen de Materias"));
-        FrutigerAeroUI.hacerTransparente(scrollResumen);
 
         renderizarParrillaYResumen(borrador, modelHorario, modelResumen);
 
         JSplitPane splitVer = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollHorario, scrollResumen);
         splitVer.setResizeWeight(0.80);
         splitVer.setDividerLocation(480);
-        splitVer.setOpaque(false); // clave: sin esto, el split pintaba su fondo opaco y tapaba las burbujas
 
         panel.add(splitVer, BorderLayout.CENTER);
 
@@ -493,7 +496,6 @@ public class VistaPrincipal extends JFrame {
         };
         JTable tablaHorario = new JTable(modelHorario);
         tablaHorario.setRowHeight(28);
-        tablaHorario.setOpaque(false); // deja ver las burbujas del fondo en celdas vacías
         tablaHorario.getTableHeader().setReorderingAllowed(false);
         tablaHorario.setDefaultRenderer(Object.class, new RenderizadorColorTabla());
         DefaultTableCellRenderer centradoRenderer = new DefaultTableCellRenderer();
@@ -514,14 +516,11 @@ public class VistaPrincipal extends JFrame {
 
         JScrollPane scrollHorario = new JScrollPane(tablaHorario);
         scrollHorario.setBorder(FrutigerAeroUI.bordeTitulado("Parrilla"));
-        FrutigerAeroUI.hacerTransparente(scrollHorario);
         JScrollPane scrollResumen = new JScrollPane(tablaResumen);
         scrollResumen.setBorder(FrutigerAeroUI.bordeTitulado("Resumen"));
-        FrutigerAeroUI.hacerTransparente(scrollResumen);
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollHorario, scrollResumen);
         split.setResizeWeight(0.75);
-        split.setOpaque(false);
 
         // --- Estadísticas rápidas para decidir entre opciones ---
         int totalMaterias = borrador.getGruposActivos().size();
@@ -560,10 +559,15 @@ public class VistaPrincipal extends JFrame {
         }
 
         // 1) Detectar materias actuales y grupos que ya quedaron obsoletos (marcados como llenos)
-        Set<Materia> materiasEnBorrador = new LinkedHashSet<>();
+        // NOTA: se guarda el NOMBRE de la materia, no el objeto Materia. Como materias.dat y
+        // borradores.dat se serializan por separado (y CargadorDatos.java regenera el catálogo
+        // preservando los borradores), el objeto Materia dentro de un Grupo ya guardado puede
+        // dejar de ser la MISMA instancia que la de materiasRegistradas aunque represente la
+        // misma materia. Comparar por nombre evita ese problema de identidad de objetos.
+        Set<String> nombresMateriasEnBorrador = new LinkedHashSet<>();
         List<Grupo> gruposObsoletos = new ArrayList<>();
         for (Grupo g : borrador.getGruposActivos()) {
-            if (g.getMateriaPadre() != null) materiasEnBorrador.add(g.getMateriaPadre());
+            if (g.getMateriaPadre() != null) nombresMateriasEnBorrador.add(g.getMateriaPadre().getNombre());
             if (!g.isDisponible()) gruposObsoletos.add(g);
         }
 
@@ -586,9 +590,9 @@ public class VistaPrincipal extends JFrame {
                 null, opciones, opciones[0]);
 
         if (eleccion == 0) {
-            mostrarDialogoModoRapido(materiasEnBorrador, true);
+            mostrarDialogoModoRapido(nombresMateriasEnBorrador, true);
         } else if (eleccion == 1) {
-            mostrarDialogoHorarioOptimo(materiasEnBorrador, true);
+            mostrarDialogoHorarioOptimo(nombresMateriasEnBorrador, true);
         }
         // eleccion == 2 (Cancelar) o cerrar el diálogo: no hacer nada
     }
@@ -764,8 +768,26 @@ public class VistaPrincipal extends JFrame {
 
         btnCancelar.addActionListener(e -> dialogo.dispose());
         btnGuardar.addActionListener(e -> {
-            // 1. Guardar cambios en la MATERIA
+            String nuevaClaveGrp = txtEditClaveGrp.getText().trim();
+            String nuevoProf = txtEditProfesor.getText().trim();
             String nuevoNomMat = txtEditNombreMat.getText().trim();
+
+            // Validación PREVIA (antes de tocar cualquier dato): la clave editada no
+            // puede chocar con la de OTRO grupo ya existente en la misma materia
+            // (se excluye al propio grupo que se está editando).
+            if (!nuevaClaveGrp.isEmpty()) {
+                for (Grupo otro : materiaSel.getGrupos()) {
+                    if (otro != grupoSel && otro.getClaveGrupo().equalsIgnoreCase(nuevaClaveGrp)) {
+                        JOptionPane.showMessageDialog(dialogo,
+                                "Ya existe otro grupo [" + nuevaClaveGrp + "] en \"" + materiaSel.getNombre() + "\".\n" +
+                                "Elige una clave distinta.",
+                                "Grupo duplicado", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                }
+            }
+
+            // 1. Guardar cambios en la MATERIA
             if (!nuevoNomMat.isEmpty()) {
                 materiaSel.setNombre(nuevoNomMat);
                 materiaSel.setColor(colorEditMateria[0]);
@@ -774,8 +796,6 @@ public class VistaPrincipal extends JFrame {
             }
 
             // 2. Guardar cambios en el GRUPO
-            String nuevaClaveGrp = txtEditClaveGrp.getText().trim();
-            String nuevoProf = txtEditProfesor.getText().trim();
             if (!nuevaClaveGrp.isEmpty()) {
                 Set<DiaSemana> nuevosDias = EnumSet.noneOf(DiaSemana.class);
                 if (chkL.isSelected()) nuevosDias.add(DiaSemana.LUNES);
@@ -847,6 +867,33 @@ public class VistaPrincipal extends JFrame {
         }
     }
 
+    /** Borra TODOS los borradores de un jalón (útil tras generar muchas opciones con Modo Rápido/Óptimo). */
+    private void borrarTodosLosHorarios() {
+        if (borradores.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No hay ningún borrador que borrar.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        int confirmacion = JOptionPane.showConfirmDialog(this,
+                "Vas a borrar los " + borradores.size() + " borrador(es) que tienes actualmente.\n" +
+                "Se creará uno nuevo y vacío llamado \"Opción A\" para empezar de cero.\n\n" +
+                "¿Confirmas? (Esto se puede deshacer con Ctrl+Z si te arrepientes)",
+                "Borrar todos los horarios", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirmacion != JOptionPane.YES_OPTION) return;
+
+        List<HorarioBorrador> respaldoCompleto = new ArrayList<>(borradores);
+        registrarParaDeshacer("Borrar todos los horarios (" + respaldoCompleto.size() + " borrador(es))", () -> {
+            borradores.clear();
+            borradores.addAll(respaldoCompleto);
+        });
+
+        borradores.clear();
+        borradores.add(new HorarioBorrador("Opción A"));
+        GestorPersistencia.guardar(materiasRegistradas, borradores);
+        reconstruirPestanias();
+        tabbedPaneHorarios.setSelectedIndex(0);
+    }
+
     private void exportarHorariosJPG() {
         if (borradores.isEmpty() || tabbedPaneHorarios.getTabCount() == 0) {
             JOptionPane.showMessageDialog(this, "No hay borradores para exportar.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
@@ -868,23 +915,11 @@ public class VistaPrincipal extends JFrame {
             tabbedPaneHorarios.setSelectedIndex(i);
             tabbedPaneHorarios.validate();
 
-            Component panelTab = tabbedPaneHorarios.getComponentAt(i);
-            int ancho = panelTab.getWidth();
-            int alto = panelTab.getHeight();
-
-            if (ancho <= 0 || alto <= 0) {
+            BufferedImage imagen = capturarImagenPanel(tabbedPaneHorarios.getComponentAt(i));
+            if (imagen == null) {
                 errores.append("• ").append(borradores.get(i).getNombre()).append(" (tamaño inválido)\n");
                 continue;
             }
-
-            BufferedImage imagen = new BufferedImage(ancho, alto, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g2 = imagen.createGraphics();
-            
-            g2.setColor(Color.WHITE);
-            g2.fillRect(0, 0, ancho, alto);
-
-            panelTab.printAll(g2);
-            g2.dispose();
 
             String nombreArchivo = sanitizarNombreArchivo(borradores.get(i).getNombre()) + ".jpg";
             File archivoDestino = new File(carpetaDestino, nombreArchivo);
@@ -905,6 +940,127 @@ public class VistaPrincipal extends JFrame {
         }
         JOptionPane.showMessageDialog(this, mensaje.toString(), "Exportación de horarios",
                 errores.length() > 0 ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void exportarHorariosPDF() {
+        if (borradores.isEmpty() || tabbedPaneHorarios.getTabCount() == 0) {
+            JOptionPane.showMessageDialog(this, "No hay borradores para exportar.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Selecciona la carpeta destino para los PDF");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        int resultado = chooser.showSaveDialog(this);
+        if (resultado != JFileChooser.APPROVE_OPTION) return;
+
+        File carpetaDestino = chooser.getSelectedFile();
+        int tabOriginal = tabbedPaneHorarios.getSelectedIndex();
+        int exportados = 0;
+        StringBuilder errores = new StringBuilder();
+
+        for (int i = 0; i < tabbedPaneHorarios.getTabCount(); i++) {
+            tabbedPaneHorarios.setSelectedIndex(i);
+            tabbedPaneHorarios.validate();
+
+            BufferedImage imagen = capturarImagenPanel(tabbedPaneHorarios.getComponentAt(i));
+            if (imagen == null) {
+                errores.append("• ").append(borradores.get(i).getNombre()).append(" (tamaño inválido)\n");
+                continue;
+            }
+
+            String nombreArchivo = sanitizarNombreArchivo(borradores.get(i).getNombre()) + ".pdf";
+            File archivoDestino = new File(carpetaDestino, nombreArchivo);
+            try {
+                escribirImagenComoPDF(imagen, archivoDestino);
+                exportados++;
+            } catch (IOException ex) {
+                errores.append("• ").append(borradores.get(i).getNombre()).append(" (").append(ex.getMessage()).append(")\n");
+            }
+        }
+
+        tabbedPaneHorarios.setSelectedIndex(tabOriginal);
+
+        StringBuilder mensaje = new StringBuilder();
+        mensaje.append(exportados).append(" horario(s) exportado(s) a PDF en:\n").append(carpetaDestino.getAbsolutePath());
+        if (errores.length() > 0) {
+            mensaje.append("\n\nNo se pudieron exportar:\n").append(errores);
+        }
+        JOptionPane.showMessageDialog(this, mensaje.toString(), "Exportación de horarios (PDF)",
+                errores.length() > 0 ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** Captura un panel (parrilla+resumen de un borrador) como imagen, igual que hace la exportación a JPG. */
+    private BufferedImage capturarImagenPanel(Component panelTab) {
+        int ancho = panelTab.getWidth();
+        int alto = panelTab.getHeight();
+        if (ancho <= 0 || alto <= 0) return null;
+
+        BufferedImage imagen = new BufferedImage(ancho, alto, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2 = imagen.createGraphics();
+        g2.setColor(Color.WHITE);
+        g2.fillRect(0, 0, ancho, alto);
+        panelTab.printAll(g2);
+        g2.dispose();
+        return imagen;
+    }
+
+    /**
+     * Escribe un PDF de una sola página que envuelve la imagen dada, SIN usar ninguna
+     * librería externa (nada de iText/PDFBox que haya que descargar): construye a mano
+     * los objetos mínimos del formato PDF y embebe el JPEG directamente con el filtro
+     * /DCTDecode, que es justo para eso: incrustar JPEGs "tal cual" dentro de un PDF.
+     */
+    private void escribirImagenComoPDF(BufferedImage imagen, File destino) throws IOException {
+        ByteArrayOutputStream bufferJpeg = new ByteArrayOutputStream();
+        ImageIO.write(imagen, "jpg", bufferJpeg);
+        byte[] datosJpeg = bufferJpeg.toByteArray();
+
+        int ancho = imagen.getWidth();
+        int alto = imagen.getHeight();
+
+        ByteArrayOutputStream pdf = new ByteArrayOutputStream();
+        List<Integer> posiciones = new ArrayList<>(); // offset de cada objeto, en orden 1..5
+
+        pdf.write("%PDF-1.4\n".getBytes("ISO-8859-1"));
+
+        posiciones.add(pdf.size());
+        pdf.write("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".getBytes("ISO-8859-1"));
+
+        posiciones.add(pdf.size());
+        pdf.write("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".getBytes("ISO-8859-1"));
+
+        posiciones.add(pdf.size());
+        String pagina = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + ancho + " " + alto + "] "
+                + "/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>\nendobj\n";
+        pdf.write(pagina.getBytes("ISO-8859-1"));
+
+        // Stream de contenido: dibuja la imagen ocupando toda la página (matriz de transformación = ancho/alto)
+        String contenido = "q " + ancho + " 0 0 " + alto + " 0 0 cm /Im0 Do Q";
+        String obj4 = "4 0 obj\n<< /Length " + contenido.getBytes("ISO-8859-1").length + " >>\nstream\n"
+                + contenido + "\nendstream\nendobj\n";
+        posiciones.add(pdf.size());
+        pdf.write(obj4.getBytes("ISO-8859-1"));
+
+        // Imagen embebida directamente como JPEG (DCTDecode = "tal cual, sin recomprimir")
+        posiciones.add(pdf.size());
+        String encabezadoImg = "5 0 obj\n<< /Type /XObject /Subtype /Image /Width " + ancho + " /Height " + alto
+                + " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + datosJpeg.length + " >>\nstream\n";
+        pdf.write(encabezadoImg.getBytes("ISO-8859-1"));
+        pdf.write(datosJpeg);
+        pdf.write("\nendstream\nendobj\n".getBytes("ISO-8859-1"));
+
+        int posXref = pdf.size();
+        pdf.write("xref\n0 6\n0000000000 65535 f \n".getBytes("ISO-8859-1"));
+        for (int offset : posiciones) {
+            pdf.write(String.format("%010d 00000 n \n", offset).getBytes("ISO-8859-1"));
+        }
+
+        pdf.write(("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" + posXref + "\n%%EOF").getBytes("ISO-8859-1"));
+
+        try (FileOutputStream fos = new FileOutputStream(destino)) {
+            pdf.writeTo(fos);
+        }
     }
 
     private String sanitizarNombreArchivo(String nombre) {
@@ -1103,7 +1259,7 @@ public class VistaPrincipal extends JFrame {
         mostrarDialogoModoRapido(null, false);
     }
 
-    private void mostrarDialogoModoRapido(Set<Materia> preseleccionar, boolean forzarUsarBorradorActual) {
+    private void mostrarDialogoModoRapido(Set<String> preseleccionar, boolean forzarUsarBorradorActual) {
         if (materiasRegistradas.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Primero registra materias y grupos en el catálogo.",
                     "Sin materias", JOptionPane.INFORMATION_MESSAGE);
@@ -1127,7 +1283,7 @@ public class VistaPrincipal extends JFrame {
             chk.setOpaque(false);
             chk.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
             chk.putClientProperty("materia", m);
-            if (preseleccionar != null && preseleccionar.contains(m)) chk.setSelected(true);
+            if (preseleccionar != null && preseleccionar.contains(m.getNombre())) chk.setSelected(true);
             chk.addItemListener(e -> {
                 long seleccionadas = checkboxes.stream().filter(JCheckBox::isSelected).count();
                 if (seleccionadas > MAX_MATERIAS_SELECCIONABLES) {
@@ -1411,7 +1567,7 @@ public class VistaPrincipal extends JFrame {
         mostrarDialogoHorarioOptimo(null, false);
     }
 
-    private void mostrarDialogoHorarioOptimo(Set<Materia> preseleccionar, boolean forzarUsarBorradorActual) {
+    private void mostrarDialogoHorarioOptimo(Set<String> preseleccionar, boolean forzarUsarBorradorActual) {
         if (materiasRegistradas.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Primero registra materias y grupos en el catálogo.",
                     "Sin materias", JOptionPane.INFORMATION_MESSAGE);
@@ -1435,7 +1591,7 @@ public class VistaPrincipal extends JFrame {
             chk.setOpaque(false);
             chk.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
             chk.putClientProperty("materia", m);
-            if (preseleccionar != null && preseleccionar.contains(m)) chk.setSelected(true);
+            if (preseleccionar != null && preseleccionar.contains(m.getNombre())) chk.setSelected(true);
             chk.addItemListener(e -> {
                 long seleccionadas = checkboxes.stream().filter(JCheckBox::isSelected).count();
                 if (seleccionadas > MAX_MATERIAS_SELECCIONABLES) {
@@ -1822,6 +1978,17 @@ public class VistaPrincipal extends JFrame {
         String prof = txtProfesor.getText().trim();
         if (clave.isEmpty()) return;
 
+        // Validación: no permitir el mismo grupo (misma clave) dos veces en la misma materia
+        for (Grupo existente : materiaSeleccionada.getGrupos()) {
+            if (existente.getClaveGrupo().equalsIgnoreCase(clave)) {
+                JOptionPane.showMessageDialog(this,
+                        "El grupo [" + clave + "] ya está registrado en \"" + materiaSeleccionada.getNombre() + "\".\n" +
+                        "Usa '⚙ Editar Selección' si quieres modificar sus datos, o registra este con otra clave.",
+                        "Grupo duplicado", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        }
+
         Set<DiaSemana> dias = EnumSet.noneOf(DiaSemana.class);
         if (chkLunes.isSelected()) dias.add(DiaSemana.LUNES);
         if (chkMartes.isSelected()) dias.add(DiaSemana.MARTES);
@@ -1952,16 +2119,12 @@ public class VistaPrincipal extends JFrame {
 
             if (value instanceof Grupo) {
                 Grupo g = (Grupo) value;
-                setOpaque(true);
                 c.setBackground(g.getMateriaPadre().getColor());
                 c.setForeground(Color.WHITE);
                 setText(g.getMateriaPadre().getNombre() + " (" + g.getClaveGrupo() + ")");
                 setHorizontalAlignment(SwingConstants.CENTER);
             } else {
-                // Celda vacía: transparente para que se vea el fondo con
-                // burbujas de PanelCielo a través de la parrilla.
-                setOpaque(false);
-                setText("");
+                c.setBackground(Color.WHITE);
                 c.setForeground(Color.BLACK);
             }
             return c;
