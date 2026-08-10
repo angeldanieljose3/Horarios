@@ -33,6 +33,8 @@ public class VistaPrincipal extends JFrame {
     private Color colorSeleccionado = new Color(52, 152, 219);
     private JSpinner spinnerDificultadMateria;
     private JComboBox<Integer> cbSemestreMateria;
+    private JSpinner spinnerCreditosMateria;
+    private JComboBox<String> cbPrerrequisitoMateria;
 
     // Formulario Grupos
     private JComboBox<Integer> cbFiltroSemestreGrupo;
@@ -50,9 +52,15 @@ public class VistaPrincipal extends JFrame {
     // Componente de Pestañas (Tabs)
     private JTabbedPane tabbedPaneHorarios;
 
+    // Retícula: si está activa, se avisa (sin bloquear) cuando eliges una materia
+    // cuyo prerrequisito no has marcado como cursado.
+    private boolean aplicarReticula;
+    private JCheckBox chkValidarReticula;
+
     public VistaPrincipal() {
         materiasRegistradas = GestorPersistencia.cargarMaterias();
         borradores = GestorPersistencia.cargarBorradores();
+        aplicarReticula = GestorPersistencia.cargarConfiguracionReticula();
 
         setTitle("Simulador de Horarios Universitarios - Múltiples Borradores");
         setSize(1250, 800);
@@ -116,6 +124,225 @@ public class VistaPrincipal extends JFrame {
         JOptionPane.showMessageDialog(this, "Se deshizo: " + accion.descripcion, "Deshacer", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    /** Punto 3: historial visible de las últimas acciones destructivas (reutiliza la misma pila de Deshacer). */
+    private void mostrarHistorialAcciones() {
+        JDialog dialogo = new JDialog(this, "Historial de Acciones Recientes", true);
+        dialogo.setLayout(new BorderLayout(10, 10));
+        FrutigerAeroUI.PanelCielo fondo = new FrutigerAeroUI.PanelCielo(new BorderLayout(10, 10));
+        fondo.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        dialogo.setContentPane(fondo);
+
+        DefaultListModel<String> modelHistorial = new DefaultListModel<>();
+        if (pilaDeshacer.isEmpty()) {
+            modelHistorial.addElement("(Todavía no se ha registrado ninguna acción en esta sesión)");
+        } else {
+            int numero = pilaDeshacer.size();
+            for (AccionDeshacer accion : pilaDeshacer) {
+                modelHistorial.addElement(numero + ". " + accion.descripcion + (numero == pilaDeshacer.size() ? "  (más reciente)" : ""));
+                numero--;
+            }
+        }
+
+        JList<String> listaHistorial = new JList<>(modelHistorial);
+        listaHistorial.setFont(FrutigerAeroUI.FUENTE_NORMAL);
+        JScrollPane scroll = new JScrollPane(listaHistorial);
+        scroll.setBorder(FrutigerAeroUI.bordeTitulado("Últimas " + MAX_ACCIONES_DESHACER + " acciones (la más reciente arriba)"));
+        scroll.setPreferredSize(new Dimension(480, 260));
+        dialogo.add(scroll, BorderLayout.CENTER);
+
+        JLabel lblNota = new JLabel("<html>Nota: solo se listan acciones que se pueden deshacer (vaciar borrador, "
+                + "reemplazar/inscribir grupo, eliminar o importar un borrador, etc).</html>");
+        lblNota.setFont(FrutigerAeroUI.FUENTE_NORMAL);
+        lblNota.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
+        lblNota.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        dialogo.add(lblNota, BorderLayout.NORTH);
+
+        JButton btnCerrar = new FrutigerAeroUI.BotonGlossy("Cerrar", FrutigerAeroUI.AGUA_PROFUNDA);
+        btnCerrar.addActionListener(e -> dialogo.dispose());
+        JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        panelBotones.setOpaque(false);
+        panelBotones.add(btnCerrar);
+        dialogo.add(panelBotones, BorderLayout.SOUTH);
+
+        dialogo.pack();
+        dialogo.setLocationRelativeTo(this);
+        dialogo.setVisible(true);
+    }
+
+    // =======================================================
+    // RETÍCULA: materias cursadas + aviso de prerrequisitos
+    // =======================================================
+
+    /** Diálogo de checklist para marcar qué materias ya cursó el usuario. */
+    private void mostrarDialogoMateriasCursadas() {
+        if (materiasRegistradas.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Todavía no has registrado ninguna materia.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        JDialog dialogo = new JDialog(this, "Materias ya cursadas", true);
+        FrutigerAeroUI.PanelCielo fondo = new FrutigerAeroUI.PanelCielo(new BorderLayout(10, 10));
+        fondo.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        dialogo.setContentPane(fondo);
+        dialogo.setLayout(new BorderLayout(10, 10));
+
+        JPanel panelLista = new JPanel();
+        panelLista.setOpaque(false);
+        panelLista.setLayout(new BoxLayout(panelLista, BoxLayout.Y_AXIS));
+
+        List<Materia> ordenadas = new ArrayList<>(materiasRegistradas);
+        ordenadas.sort(Comparator.comparingInt(Materia::getSemestre).thenComparing(Materia::getNombre));
+
+        List<JCheckBox> checks = new ArrayList<>();
+        for (Materia m : ordenadas) {
+            JCheckBox chk = new JCheckBox("Sem." + m.getSemestre() + " - " + m.getNombre(), m.isCursada());
+            chk.setOpaque(false);
+            chk.putClientProperty("materia", m);
+            checks.add(chk);
+            panelLista.add(chk);
+        }
+
+        JScrollPane scroll = new JScrollPane(panelLista);
+        scroll.getViewport().setOpaque(false);
+        scroll.setOpaque(false);
+        scroll.setPreferredSize(new Dimension(420, 320));
+        scroll.setBorder(FrutigerAeroUI.bordeTitulado("Marca las materias que ya aprobaste"));
+        dialogo.add(scroll, BorderLayout.CENTER);
+
+        JButton btnGuardar = new FrutigerAeroUI.BotonGlossy("Guardar", FrutigerAeroUI.VERDE_HOJA);
+        JButton btnCancelar = new FrutigerAeroUI.BotonGlossy("Cancelar", FrutigerAeroUI.ROJO_CORAL);
+        btnCancelar.addActionListener(e -> dialogo.dispose());
+        btnGuardar.addActionListener(e -> {
+            for (JCheckBox chk : checks) {
+                ((Materia) chk.getClientProperty("materia")).setCursada(chk.isSelected());
+            }
+            GestorPersistencia.guardar(materiasRegistradas, borradores);
+            dialogo.dispose();
+        });
+        JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        panelBotones.setOpaque(false);
+        panelBotones.add(btnCancelar);
+        panelBotones.add(btnGuardar);
+        dialogo.add(panelBotones, BorderLayout.SOUTH);
+
+        dialogo.pack();
+        dialogo.setLocationRelativeTo(this);
+        dialogo.setVisible(true);
+    }
+
+    /**
+     * Revisa la lista de materias que el usuario está por seleccionar y devuelve, para cada
+     * una que tenga un prerrequisito definido y ese prerrequisito NO esté marcado como cursado,
+     * una línea descriptiva. Lista vacía = todo en regla (o la retícula está desactivada).
+     */
+    private List<String> materiasConPrerrequisitoFaltante(List<Materia> seleccionadas) {
+        List<String> faltantes = new ArrayList<>();
+        if (!aplicarReticula) return faltantes;
+
+        for (Materia m : seleccionadas) {
+            String prereqNombre = m.getPrerrequisito();
+            if (prereqNombre == null || prereqNombre.trim().isEmpty()) continue;
+
+            Materia prereqMateria = buscarMateriaPorNombre(prereqNombre);
+            boolean prereqCumplido = (prereqMateria != null && prereqMateria.isCursada());
+            if (!prereqCumplido) {
+                faltantes.add(m.getNombre() + "  →  requiere antes: " + prereqNombre);
+            }
+        }
+        return faltantes;
+    }
+
+    private Materia buscarMateriaPorNombre(String nombre) {
+        for (Materia m : materiasRegistradas) {
+            if (m.getNombre().equalsIgnoreCase(nombre.trim())) return m;
+        }
+        return null;
+    }
+
+    /**
+     * Muestra el aviso de prerrequisitos faltantes (si la retícula está activa y hay alguno) y
+     * pregunta si se desea continuar de todas formas. true = continuar, false = cancelar la acción.
+     */
+    private boolean confirmarPrerrequisitos(List<Materia> seleccionadas) {
+        List<String> faltantes = materiasConPrerrequisitoFaltante(seleccionadas);
+        if (faltantes.isEmpty()) return true;
+
+        StringBuilder msg = new StringBuilder("Estás por elegir materia(s) sin haber marcado como cursado su prerrequisito:\n\n");
+        for (String f : faltantes) msg.append("• ").append(f).append("\n");
+        msg.append("\n¿Deseas continuar de todas formas?");
+
+        int resultado = JOptionPane.showConfirmDialog(this, msg.toString(), "Aviso de prerrequisitos",
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        return resultado == JOptionPane.YES_OPTION;
+    }
+
+    // =======================================================
+    // EXPORTAR / IMPORTAR UN SOLO BORRADOR
+    // =======================================================
+
+    private void exportarBorradorActual() {
+        int index = tabbedPaneHorarios.getSelectedIndex();
+        if (index < 0) {
+            JOptionPane.showMessageDialog(this, "No hay ningún borrador seleccionado.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        HorarioBorrador borrador = borradores.get(index);
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Exportar borrador \"" + borrador.getNombre() + "\"");
+        chooser.setSelectedFile(new File(sanitizarNombreArchivo(borrador.getNombre()) + ".horario"));
+        int resultado = chooser.showSaveDialog(this);
+        if (resultado != JFileChooser.APPROVE_OPTION) return;
+
+        File destino = chooser.getSelectedFile();
+        try {
+            GestorPersistencia.exportarBorradorIndividual(borrador, destino);
+            JOptionPane.showMessageDialog(this, "Borrador exportado a:\n" + destino.getAbsolutePath(),
+                    "Exportación exitosa", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo exportar el borrador:\n" + ex.getMessage(),
+                    "Error al exportar", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void importarBorradorDesdeArchivo() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Importar borrador");
+        int resultado = chooser.showOpenDialog(this);
+        if (resultado != JFileChooser.APPROVE_OPTION) return;
+
+        File origen = chooser.getSelectedFile();
+        try {
+            HorarioBorrador importado = GestorPersistencia.importarBorradorIndividual(origen);
+
+            // Evitar nombres duplicados entre borradores ya abiertos
+            String nombreBase = importado.getNombre();
+            String nombreFinal = nombreBase;
+            int sufijo = 2;
+            Set<String> nombresExistentes = new HashSet<>();
+            for (HorarioBorrador b : borradores) nombresExistentes.add(b.getNombre());
+            while (nombresExistentes.contains(nombreFinal)) {
+                nombreFinal = nombreBase + " (" + sufijo + ")";
+                sufijo++;
+            }
+            importado.setNombre(nombreFinal);
+
+            borradores.add(importado);
+            final HorarioBorrador importadoFinal = importado;
+            registrarParaDeshacer("Importar borrador \"" + nombreFinal + "\"", () -> borradores.remove(importadoFinal));
+
+            GestorPersistencia.guardar(materiasRegistradas, borradores);
+            reconstruirPestanias();
+            tabbedPaneHorarios.setSelectedIndex(borradores.size() - 1);
+
+            JOptionPane.showMessageDialog(this, "Borrador \"" + nombreFinal + "\" importado con " +
+                    importado.getGruposActivos().size() + " grupo(s).", "Importación exitosa", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException | ClassNotFoundException ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo importar el archivo seleccionado:\n" + ex.getMessage(),
+                    "Error al importar", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private JPanel crearPanelIzquierdo() {
         JPanel panel = new FrutigerAeroUI.PanelCielo(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -151,6 +378,8 @@ public class VistaPrincipal extends JFrame {
         btnGuardarMateria.addActionListener(e -> crearMateria());
 
         spinnerDificultadMateria = new JSpinner(new SpinnerNumberModel(3, 1, 5, 1));
+        spinnerCreditosMateria = new JSpinner(new SpinnerNumberModel(5, 0, 15, 1));
+        cbPrerrequisitoMateria = new JComboBox<>();
 
         panelMateria.add(new JLabel("Nombre:"));
         panelMateria.add(txtNombreMateria);
@@ -159,6 +388,10 @@ public class VistaPrincipal extends JFrame {
         panelMateria.add(cbSemestreMateria);
         panelMateria.add(new JLabel("Dif:"));
         panelMateria.add(spinnerDificultadMateria);
+        panelMateria.add(new JLabel("Créd:"));
+        panelMateria.add(spinnerCreditosMateria);
+        panelMateria.add(new JLabel("Prerrequisito:"));
+        panelMateria.add(cbPrerrequisitoMateria);
         panelMateria.add(btnGuardarMateria);
 
         // --- SUBFORMULARIO 2: GRUPOS ---
@@ -274,11 +507,14 @@ public class VistaPrincipal extends JFrame {
         panelFila1.setOpaque(false);
         JPanel panelFila2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         panelFila2.setOpaque(false);
+        JPanel panelFila3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        panelFila3.setOpaque(false);
 
-        JPanel panelTopBar = new JPanel(new GridLayout(2, 1, 0, 0));
+        JPanel panelTopBar = new JPanel(new GridLayout(3, 1, 0, 0));
         panelTopBar.setOpaque(false);
         panelTopBar.add(panelFila1);
         panelTopBar.add(panelFila2);
+        panelTopBar.add(panelFila3);
 
         JButton btnNuevoBorrador = new FrutigerAeroUI.BotonGlossy("+ Nuevo Borrador", FrutigerAeroUI.AGUA_PROFUNDA);
         btnNuevoBorrador.addActionListener(e -> crearNuevoBorrador());
@@ -307,6 +543,28 @@ public class VistaPrincipal extends JFrame {
         JButton btnBorrarTodos = new FrutigerAeroUI.BotonGlossy("🗑 Borrar Todos los Horarios", FrutigerAeroUI.ROJO_CORAL);
         btnBorrarTodos.addActionListener(e -> borrarTodosLosHorarios());
 
+        JButton btnHistorial = new FrutigerAeroUI.BotonGlossy("📜 Historial de Acciones", FrutigerAeroUI.CIELO_MEDIO.darker());
+        btnHistorial.addActionListener(e -> mostrarHistorialAcciones());
+
+        JButton btnMateriasCursadas = new FrutigerAeroUI.BotonGlossy("✓ Materias Cursadas", FrutigerAeroUI.VERDE_OSCURO);
+        btnMateriasCursadas.addActionListener(e -> mostrarDialogoMateriasCursadas());
+
+        chkValidarReticula = new JCheckBox("📚 Validar Retícula (avisar prerrequisitos)");
+        chkValidarReticula.setOpaque(false);
+        chkValidarReticula.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
+        chkValidarReticula.setFont(FrutigerAeroUI.FUENTE_TITULO);
+        chkValidarReticula.setSelected(aplicarReticula);
+        chkValidarReticula.addActionListener(e -> {
+            aplicarReticula = chkValidarReticula.isSelected();
+            GestorPersistencia.guardarConfiguracionReticula(aplicarReticula);
+        });
+
+        JButton btnExportarBorrador = new FrutigerAeroUI.BotonGlossy("💾 Exportar Borrador Actual", FrutigerAeroUI.AGUA_PROFUNDA);
+        btnExportarBorrador.addActionListener(e -> exportarBorradorActual());
+
+        JButton btnImportarBorrador = new FrutigerAeroUI.BotonGlossy("📂 Importar Borrador", FrutigerAeroUI.NARANJA_SOL);
+        btnImportarBorrador.addActionListener(e -> importarBorradorDesdeArchivo());
+
         panelFila1.add(btnNuevoBorrador);
         panelFila1.add(btnEliminarBorrador);
         panelFila1.add(btnExportarJPG);
@@ -317,6 +575,12 @@ public class VistaPrincipal extends JFrame {
         panelFila2.add(btnComparar);
         panelFila2.add(btnExportarPDF);
         panelFila2.add(btnBorrarTodos);
+
+        panelFila3.add(btnHistorial);
+        panelFila3.add(btnMateriasCursadas);
+        panelFila3.add(chkValidarReticula);
+        panelFila3.add(btnExportarBorrador);
+        panelFila3.add(btnImportarBorrador);
         panel.add(panelTopBar, BorderLayout.NORTH);
 
         tabbedPaneHorarios = new JTabbedPane();
@@ -379,6 +643,13 @@ public class VistaPrincipal extends JFrame {
 
         panel.add(splitVer, BorderLayout.CENTER);
 
+        JLabel lblResumenCarga = new JLabel();
+        lblResumenCarga.setName("lblResumenCarga");
+        lblResumenCarga.setFont(FrutigerAeroUI.FUENTE_TITULO);
+        lblResumenCarga.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
+        lblResumenCarga.setHorizontalAlignment(SwingConstants.CENTER);
+        actualizarResumenCarga(lblResumenCarga, borrador);
+
         JButton btnVaciar = new FrutigerAeroUI.BotonGlossy("Vaciar " + borrador.getNombre(), FrutigerAeroUI.ROJO_CORAL);
         btnVaciar.addActionListener(e -> {
             if (borrador.getGruposActivos().isEmpty()) {
@@ -393,6 +664,7 @@ public class VistaPrincipal extends JFrame {
             borrador.getGruposActivos().clear();
             GestorPersistencia.guardar(materiasRegistradas, borradores);
             renderizarParrillaYResumen(borrador, modelHorario, modelResumen);
+            actualizarResumenCarga(lblResumenCarga, borrador);
         });
 
         JButton btnRecalcular = new FrutigerAeroUI.BotonGlossy("🔁 Recalcular este Horario", FrutigerAeroUI.AGUA_PROFUNDA);
@@ -402,9 +674,41 @@ public class VistaPrincipal extends JFrame {
         panelBotonesBorrador.setOpaque(false);
         panelBotonesBorrador.add(btnRecalcular);
         panelBotonesBorrador.add(btnVaciar);
-        panel.add(panelBotonesBorrador, BorderLayout.SOUTH);
+
+        JPanel panelSurCompleto = new JPanel(new BorderLayout());
+        panelSurCompleto.setOpaque(false);
+        panelSurCompleto.add(lblResumenCarga, BorderLayout.NORTH);
+        panelSurCompleto.add(panelBotonesBorrador, BorderLayout.SOUTH);
+        panel.add(panelSurCompleto, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    /** Busca recursivamente el primer componente cuyo name() coincida (para actualizar la UI desde otros métodos). */
+    private Component buscarComponentePorNombre(Container raiz, String nombre) {
+        for (Component c : raiz.getComponents()) {
+            if (nombre.equals(c.getName())) return c;
+            if (c instanceof Container) {
+                Component encontrado = buscarComponentePorNombre((Container) c, nombre);
+                if (encontrado != null) return encontrado;
+            }
+        }
+        return null;
+    }
+
+    /** Punto 4: resumen de carga (materias, créditos y horas ocupadas por semana) de un borrador. */
+    private void actualizarResumenCarga(JLabel label, HorarioBorrador borrador) {
+        Set<Materia> materiasDistintas = new LinkedHashSet<>();
+        int horasSemana = 0;
+        for (Grupo g : borrador.getGruposActivos()) {
+            if (g.getMateriaPadre() != null) materiasDistintas.add(g.getMateriaPadre());
+            horasSemana += g.getDias().size(); // 1 hora por cada día que se imparte
+        }
+        int totalCreditos = 0;
+        for (Materia m : materiasDistintas) totalCreditos += m.getCreditos();
+
+        label.setText(String.format("📊 Carga actual: %d materia(s) · %d créditos · %d hrs/semana",
+                materiasDistintas.size(), totalCreditos, horasSemana));
     }
 
     // =======================================================
@@ -527,9 +831,19 @@ public class VistaPrincipal extends JFrame {
         int huecos = calcularHorasMuertas(borrador.getGruposActivos());
         int dificultadTotal = calcularDificultadTotal(borrador.getGruposActivos(), FuenteDificultad.AMBAS);
 
+        Set<Materia> materiasDistintasComp = new LinkedHashSet<>();
+        int horasSemanaComp = 0;
+        for (Grupo g : borrador.getGruposActivos()) {
+            if (g.getMateriaPadre() != null) materiasDistintasComp.add(g.getMateriaPadre());
+            horasSemanaComp += g.getDias().size();
+        }
+        int creditosComp = 0;
+        for (Materia m : materiasDistintasComp) creditosComp += m.getCreditos();
+
         JLabel lblStats = new JLabel(String.format(
-                "<html><b>%d</b> materia(s) &nbsp;|&nbsp; <b>%d</b> hora(s) muerta(s)/día &nbsp;|&nbsp; <b>%d</b> puntos de dificultad (grupo+materia)</html>",
-                totalMaterias, huecos, dificultadTotal));
+                "<html><b>%d</b> materia(s) &nbsp;|&nbsp; <b>%d</b> créditos &nbsp;|&nbsp; <b>%d</b> hrs/semana &nbsp;|&nbsp; "
+                + "<b>%d</b> hora(s) muerta(s)/día &nbsp;|&nbsp; <b>%d</b> puntos de dificultad (grupo+materia)</html>",
+                totalMaterias, creditosComp, horasSemanaComp, huecos, dificultadTotal));
         lblStats.setFont(FrutigerAeroUI.FUENTE_TITULO);
         lblStats.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
         lblStats.setHorizontalAlignment(SwingConstants.CENTER);
@@ -679,7 +993,20 @@ public class VistaPrincipal extends JFrame {
 
         // Dificultad de la Materia
         JSpinner spinnerEditDifMat = new JSpinner(new SpinnerNumberModel(materiaSel.getDificultad(), 1, 5, 1));
-        
+
+        // Créditos y prerrequisito (para el resumen de carga y la retícula)
+        JSpinner spinnerEditCreditos = new JSpinner(new SpinnerNumberModel(materiaSel.getCreditos(), 0, 15, 1));
+
+        JComboBox<String> cbEditPrerreq = new JComboBox<>();
+        cbEditPrerreq.addItem("(Ninguno)");
+        List<Materia> ordenadasParaPrereq = new ArrayList<>(materiasRegistradas);
+        ordenadasParaPrereq.sort(Comparator.comparingInt(Materia::getSemestre).thenComparing(Materia::getNombre));
+        for (Materia otra : ordenadasParaPrereq) {
+            if (otra != materiaSel) cbEditPrerreq.addItem(otra.getNombre());
+        }
+        String prereqActual = materiaSel.getPrerrequisito();
+        cbEditPrerreq.setSelectedItem((prereqActual == null || prereqActual.isEmpty()) ? "(Ninguno)" : prereqActual);
+
         final Color[] colorEditMateria = {materiaSel.getColor()};
         JButton btnColorEditMat = new JButton("Cambiar Color");
         btnColorEditMat.setBackground(colorEditMateria[0]);
@@ -700,7 +1027,11 @@ public class VistaPrincipal extends JFrame {
         gbcM.gridx = 1; panelEditMat.add(cbEditSemestreMat, gbcM);
         gbcM.gridx = 0; gbcM.gridy = 2; panelEditMat.add(new JLabel("Dificultad Materia (1-5):"), gbcM);
         gbcM.gridx = 1; panelEditMat.add(spinnerEditDifMat, gbcM);
-        gbcM.gridx = 0; gbcM.gridy = 3; gbcM.gridwidth = 2; panelEditMat.add(btnColorEditMat, gbcM);
+        gbcM.gridx = 0; gbcM.gridy = 3; panelEditMat.add(new JLabel("Créditos:"), gbcM);
+        gbcM.gridx = 1; panelEditMat.add(spinnerEditCreditos, gbcM);
+        gbcM.gridx = 0; gbcM.gridy = 4; panelEditMat.add(new JLabel("Prerrequisito:"), gbcM);
+        gbcM.gridx = 1; panelEditMat.add(cbEditPrerreq, gbcM);
+        gbcM.gridx = 0; gbcM.gridy = 5; gbcM.gridwidth = 2; panelEditMat.add(btnColorEditMat, gbcM);
 
         tabs.addTab("📘 Materia: " + materiaSel.getNombre(), panelEditMat);
 
@@ -793,6 +1124,9 @@ public class VistaPrincipal extends JFrame {
                 materiaSel.setColor(colorEditMateria[0]);
                 materiaSel.setSemestre((Integer) cbEditSemestreMat.getSelectedItem());
                 materiaSel.setDificultad((Integer) spinnerEditDifMat.getValue());
+                materiaSel.setCreditos((Integer) spinnerEditCreditos.getValue());
+                String prereqElegido = (String) cbEditPrerreq.getSelectedItem();
+                materiaSel.setPrerrequisito((prereqElegido == null || prereqElegido.equals("(Ninguno)")) ? "" : prereqElegido);
             }
 
             // 2. Guardar cambios en el GRUPO
@@ -1092,6 +1426,11 @@ public class VistaPrincipal extends JFrame {
             return;
         }
 
+        if (seleccionado.getMateriaPadre() != null
+                && !confirmarPrerrequisitos(Collections.singletonList(seleccionado.getMateriaPadre()))) {
+            return; // el usuario decidió cancelar tras ver el aviso de prerrequisito
+        }
+
         Iterator<Grupo> iter = activos.iterator();
         while (iter.hasNext()) {
             Grupo existente = iter.next();
@@ -1124,6 +1463,11 @@ public class VistaPrincipal extends JFrame {
         JTable tablaR = (JTable) scrollResumen.getViewport().getView();
 
         renderizarParrillaYResumen(borradorActivo, (DefaultTableModel) tablaH.getModel(), (DefaultTableModel) tablaR.getModel());
+
+        Component lblEncontrado = buscarComponentePorNombre(panelTab, "lblResumenCarga");
+        if (lblEncontrado instanceof JLabel) {
+            actualizarResumenCarga((JLabel) lblEncontrado, borradorActivo);
+        }
 
         if (!removidos.isEmpty()) {
             StringBuilder msg = new StringBuilder("Se reemplazaron los siguientes grupos en [" + borradorActivo.getNombre()
@@ -1394,6 +1738,8 @@ public class VistaPrincipal extends JFrame {
                 JOptionPane.showMessageDialog(dialogo, "Selecciona al menos una materia.", "Aviso", JOptionPane.WARNING_MESSAGE);
                 return;
             }
+
+            if (!confirmarPrerrequisitos(seleccionadas)) return;
 
             int cantidad = (Integer) spinnerCantidad.getValue();
             boolean usarActual = radioActual.isSelected();
@@ -1757,6 +2103,8 @@ public class VistaPrincipal extends JFrame {
                 return;
             }
 
+            if (!confirmarPrerrequisitos(seleccionadas)) return;
+
             int cantidad = (Integer) spinnerCantidad.getValue();
             boolean usarActual = radioActual.isSelected();
             if (usarActual) cantidad = 1;
@@ -1960,11 +2308,15 @@ public class VistaPrincipal extends JFrame {
         int semestre = (Integer) cbSemestreMateria.getSelectedItem();
         Materia m = new Materia(nombre, colorSeleccionado, semestre);
         m.setDificultad((Integer) spinnerDificultadMateria.getValue());
+        m.setCreditos((Integer) spinnerCreditosMateria.getValue());
+        String prereqSeleccionado = (String) cbPrerrequisitoMateria.getSelectedItem();
+        m.setPrerrequisito((prereqSeleccionado == null || prereqSeleccionado.equals("(Ninguno)")) ? "" : prereqSeleccionado);
         materiasRegistradas.add(m);
         GestorPersistencia.guardar(materiasRegistradas, borradores);
 
         txtNombreMateria.setText("");
         spinnerDificultadMateria.setValue(3);
+        spinnerCreditosMateria.setValue(5);
 
         cbFiltroSemestreGrupo.setSelectedItem(semestre);
         actualizarCombosYListas();
@@ -2031,6 +2383,19 @@ public class VistaPrincipal extends JFrame {
     private void actualizarCombosYListas() {
         actualizarMateriasPorSemestre();
         actualizarListaGrupos();
+        actualizarComboPrerrequisitos();
+    }
+
+    /** Repuebla el combo de "Prerrequisito" del formulario de Crear Materia con los nombres actuales. */
+    private void actualizarComboPrerrequisitos() {
+        if (cbPrerrequisitoMateria == null) return;
+        Object seleccionPrevia = cbPrerrequisitoMateria.getSelectedItem();
+        cbPrerrequisitoMateria.removeAllItems();
+        cbPrerrequisitoMateria.addItem("(Ninguno)");
+        List<Materia> ordenadas = new ArrayList<>(materiasRegistradas);
+        ordenadas.sort(Comparator.comparingInt(Materia::getSemestre).thenComparing(Materia::getNombre));
+        for (Materia m : ordenadas) cbPrerrequisitoMateria.addItem(m.getNombre());
+        if (seleccionPrevia != null) cbPrerrequisitoMateria.setSelectedItem(seleccionPrevia);
     }
 
     /**
