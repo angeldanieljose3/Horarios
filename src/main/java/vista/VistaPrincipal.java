@@ -497,98 +497,120 @@ public class VistaPrincipal extends JFrame {
     }
 
     private JPanel crearPanelDerecho() {
-        JPanel panel = new FrutigerAeroUI.PanelCielo(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+    JPanel panel = new FrutigerAeroUI.PanelCielo(new BorderLayout(5, 5));
+    panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Dos filas FIJAS en vez de un solo FlowLayout: así nunca se recorta un
-        // botón por el bug de Swing donde BorderLayout.NORTH no crece cuando un
-        // FlowLayout envuelve su contenido a una segunda línea.
-        JPanel panelFila1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        panelFila1.setOpaque(false);
-        JPanel panelFila2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        panelFila2.setOpaque(false);
-        JPanel panelFila3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        panelFila3.setOpaque(false);
+    // =======================================================
+    // BARRA DE HERRAMIENTAS (JToolBar)
+    // =======================================================
+    JToolBar toolBar = new JToolBar();
+    toolBar.setFloatable(false); // Evita que el usuario la desclave si no lo deseas
+    toolBar.setOpaque(false);
+    toolBar.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 2));
 
-        JPanel panelTopBar = new JPanel(new GridLayout(3, 1, 0, 0));
-        panelTopBar.setOpaque(false);
-        panelTopBar.add(panelFila1);
-        panelTopBar.add(panelFila2);
-        panelTopBar.add(panelFila3);
+    // --- GRUPO 1: Borradores ---
+    JButton btnNuevoBorrador = new FrutigerAeroUI.BotonGlossy("+ Nuevo", FrutigerAeroUI.AGUA_PROFUNDA);
+    btnNuevoBorrador.addActionListener(e -> crearNuevoBorrador());
 
-        JButton btnNuevoBorrador = new FrutigerAeroUI.BotonGlossy("+ Nuevo Borrador", FrutigerAeroUI.AGUA_PROFUNDA);
-        btnNuevoBorrador.addActionListener(e -> crearNuevoBorrador());
+    JButton btnEliminarBorrador = new FrutigerAeroUI.BotonGlossy("Eliminar", FrutigerAeroUI.ROJO_CORAL);
+    btnEliminarBorrador.addActionListener(e -> eliminarBorradorActual());
 
-        JButton btnEliminarBorrador = new FrutigerAeroUI.BotonGlossy("Eliminar Borrador Actual", FrutigerAeroUI.ROJO_CORAL);
-        btnEliminarBorrador.addActionListener(e -> eliminarBorradorActual());
+    toolBar.add(btnNuevoBorrador);
+    toolBar.add(btnEliminarBorrador);
+    toolBar.addSeparator();
 
-        JButton btnExportarJPG = new FrutigerAeroUI.BotonGlossy("Exportar Horarios (JPG)", FrutigerAeroUI.CIELO_MEDIO.darker());
-        btnExportarJPG.addActionListener(e -> exportarHorariosJPG());
+    // --- GRUPO 2: Algoritmos / Generación ---
+    JButton btnModoRapido = new FrutigerAeroUI.BotonGlossy("⚡ Modo Rápido", FrutigerAeroUI.NARANJA_SOL);
+    btnModoRapido.addActionListener(e -> mostrarDialogoModoRapido());
 
-        JButton btnExportarPDF = new FrutigerAeroUI.BotonGlossy("Exportar Horarios (PDF)", FrutigerAeroUI.ROJO_CORAL.darker());
-        btnExportarPDF.addActionListener(e -> exportarHorariosPDF());
+    JButton btnHorarioOptimo = new FrutigerAeroUI.BotonGlossy("🏆 Horario Óptimo", FrutigerAeroUI.VERDE_HOJA);
+    btnHorarioOptimo.addActionListener(e -> mostrarDialogoHorarioOptimo());
 
-        JButton btnModoRapido = new FrutigerAeroUI.BotonGlossy("⚡ Modo Rápido", FrutigerAeroUI.NARANJA_SOL);
-        btnModoRapido.addActionListener(e -> mostrarDialogoModoRapido());
+    toolBar.add(btnModoRapido);
+    toolBar.add(btnHorarioOptimo);
+    toolBar.addSeparator();
 
-        JButton btnHorarioOptimo = new FrutigerAeroUI.BotonGlossy("🏆 Horario Óptimo", FrutigerAeroUI.VERDE_HOJA);
-        btnHorarioOptimo.addActionListener(e -> mostrarDialogoHorarioOptimo());
+    // --- GRUPO 3: Utilidades (Menú Desplegable "Herramientas") ---
+    JPopupMenu menuHerramientas = new JPopupMenu();
+    
+    JMenuItem itemComparar = new JMenuItem("⚖ Comparar Borradores");
+    itemComparar.addActionListener(e -> mostrarDialogoCompararBorradores());
 
-        JButton btnDeshacer = new FrutigerAeroUI.BotonGlossy("↩ Deshacer (Ctrl+Z)", FrutigerAeroUI.CIELO_MEDIO.darker());
-        btnDeshacer.addActionListener(e -> deshacerUltimaAccion());
+    JMenuItem itemHistorial = new JMenuItem("📜 Historial de Acciones");
+    itemHistorial.addActionListener(e -> mostrarHistorialAcciones());
 
-        JButton btnComparar = new FrutigerAeroUI.BotonGlossy("⚖ Comparar Borradores", FrutigerAeroUI.AGUA_PROFUNDA.darker());
-        btnComparar.addActionListener(e -> mostrarDialogoCompararBorradores());
+    JMenuItem itemMateriasCursadas = new JMenuItem("✓ Materias Cursadas");
+    itemMateriasCursadas.addActionListener(e -> mostrarDialogoMateriasCursadas());
 
-        JButton btnBorrarTodos = new FrutigerAeroUI.BotonGlossy("🗑 Borrar Todos los Horarios", FrutigerAeroUI.ROJO_CORAL);
-        btnBorrarTodos.addActionListener(e -> borrarTodosLosHorarios());
+    JMenuItem itemBorrarTodos = new JMenuItem("🗑 Borrar Todos los Horarios");
+    itemBorrarTodos.addActionListener(e -> borrarTodosLosHorarios());
 
-        JButton btnHistorial = new FrutigerAeroUI.BotonGlossy("📜 Historial de Acciones", FrutigerAeroUI.CIELO_MEDIO.darker());
-        btnHistorial.addActionListener(e -> mostrarHistorialAcciones());
+    menuHerramientas.add(itemComparar);
+    menuHerramientas.add(itemHistorial);
+    menuHerramientas.add(itemMateriasCursadas);
+    menuHerramientas.addSeparator();
+    menuHerramientas.add(itemBorrarTodos);
 
-        JButton btnMateriasCursadas = new FrutigerAeroUI.BotonGlossy("✓ Materias Cursadas", FrutigerAeroUI.VERDE_OSCURO);
-        btnMateriasCursadas.addActionListener(e -> mostrarDialogoMateriasCursadas());
+    JButton btnHerramientas = new FrutigerAeroUI.BotonGlossy("🛠 Herramientas ▾", FrutigerAeroUI.CIELO_MEDIO.darker());
+    btnHerramientas.addActionListener(e -> menuHerramientas.show(btnHerramientas, 0, btnHerramientas.getHeight()));
 
-        chkValidarReticula = new JCheckBox("📚 Validar Retícula (avisar prerrequisitos)");
-        chkValidarReticula.setOpaque(false);
-        chkValidarReticula.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
-        chkValidarReticula.setFont(FrutigerAeroUI.FUENTE_TITULO);
-        chkValidarReticula.setSelected(aplicarReticula);
-        chkValidarReticula.addActionListener(e -> {
-            aplicarReticula = chkValidarReticula.isSelected();
-            GestorPersistencia.guardarConfiguracionReticula(aplicarReticula);
-        });
+    toolBar.add(btnHerramientas);
 
-        JButton btnExportarBorrador = new FrutigerAeroUI.BotonGlossy("💾 Exportar Borrador Actual", FrutigerAeroUI.AGUA_PROFUNDA);
-        btnExportarBorrador.addActionListener(e -> exportarBorradorActual());
+    // --- GRUPO 4: Exportación / Importación (Menú Desplegable "Archivo/E-S") ---
+    JPopupMenu menuExportar = new JPopupMenu();
+    
+    JMenuItem itemExpJPG = new JMenuItem("🖼 Exportar como JPG");
+    itemExpJPG.addActionListener(e -> exportarHorariosJPG());
 
-        JButton btnImportarBorrador = new FrutigerAeroUI.BotonGlossy("📂 Importar Borrador", FrutigerAeroUI.NARANJA_SOL);
-        btnImportarBorrador.addActionListener(e -> importarBorradorDesdeArchivo());
+    JMenuItem itemExpPDF = new JMenuItem("📄 Exportar como PDF");
+    itemExpPDF.addActionListener(e -> exportarHorariosPDF());
 
-        panelFila1.add(btnNuevoBorrador);
-        panelFila1.add(btnEliminarBorrador);
-        panelFila1.add(btnExportarJPG);
-        panelFila1.add(btnModoRapido);
-        panelFila1.add(btnHorarioOptimo);
+    JMenuItem itemExpBorrador = new JMenuItem("💾 Exportar Borrador (.horario)");
+    itemExpBorrador.addActionListener(e -> exportarBorradorActual());
 
-        panelFila2.add(btnDeshacer);
-        panelFila2.add(btnComparar);
-        panelFila2.add(btnExportarPDF);
-        panelFila2.add(btnBorrarTodos);
+    JMenuItem itemImpBorrador = new JMenuItem("📂 Importar Borrador");
+    itemImpBorrador.addActionListener(e -> importarBorradorDesdeArchivo());
 
-        panelFila3.add(btnHistorial);
-        panelFila3.add(btnMateriasCursadas);
-        panelFila3.add(chkValidarReticula);
-        panelFila3.add(btnExportarBorrador);
-        panelFila3.add(btnImportarBorrador);
-        panel.add(panelTopBar, BorderLayout.NORTH);
+    menuExportar.add(itemExpJPG);
+    menuExportar.add(itemExpPDF);
+    menuExportar.addSeparator();
+    menuExportar.add(itemExpBorrador);
+    menuExportar.add(itemImpBorrador);
 
-        tabbedPaneHorarios = new JTabbedPane();
-        FrutigerAeroUI.estilizarTabbedPane(tabbedPaneHorarios);
-        panel.add(tabbedPaneHorarios, BorderLayout.CENTER);
+    JButton btnExportarImportar = new FrutigerAeroUI.BotonGlossy("💾 Archivo ▾", FrutigerAeroUI.AGUA_PROFUNDA.darker());
+    btnExportarImportar.addActionListener(e -> menuExportar.show(btnExportarImportar, 0, btnExportarImportar.getHeight()));
 
-        return panel;
-    }
+    toolBar.add(btnExportarImportar);
+    toolBar.addSeparator();
+
+    // --- GRUPO 5: Deshacer y Opciones rápidas ---
+    JButton btnDeshacer = new FrutigerAeroUI.BotonGlossy("↩ Deshacer", FrutigerAeroUI.CIELO_MEDIO.darker());
+    btnDeshacer.addActionListener(e -> deshacerUltimaAccion());
+
+    chkValidarReticula = new JCheckBox("📚 Retícula");
+    chkValidarReticula.setOpaque(false);
+    chkValidarReticula.setForeground(FrutigerAeroUI.TEXTO_OSCURO);
+    chkValidarReticula.setFont(FrutigerAeroUI.FUENTE_TITULO);
+    chkValidarReticula.setSelected(aplicarReticula);
+    chkValidarReticula.setToolTipText("Validar Retícula (avisar prerrequisitos)");
+    chkValidarReticula.addActionListener(e -> {
+        aplicarReticula = chkValidarReticula.isSelected();
+        GestorPersistencia.guardarConfiguracionReticula(aplicarReticula);
+    });
+
+    toolBar.add(btnDeshacer);
+    toolBar.add(chkValidarReticula);
+
+    // Añadir la ToolBar en la parte superior (NORTH)
+    panel.add(toolBar, BorderLayout.NORTH);
+
+    // Tabs al centro
+    tabbedPaneHorarios = new JTabbedPane();
+    FrutigerAeroUI.estilizarTabbedPane(tabbedPaneHorarios);
+    panel.add(tabbedPaneHorarios, BorderLayout.CENTER);
+
+    return panel;
+}
 
     private void reconstruirPestanias() {
         tabbedPaneHorarios.removeAll();
