@@ -483,13 +483,17 @@ public class VistaPrincipal extends JFrame {
         JButton btnToggleDisponible = new FrutigerAeroUI.BotonGlossy("⛔ Marcar/Desmarcar como Lleno", FrutigerAeroUI.NARANJA_SOL);
         btnToggleDisponible.addActionListener(e -> toggleDisponibilidadGrupoSeleccionado());
 
+        JButton btnTogglePrioridad = new FrutigerAeroUI.BotonGlossy("⭐ Marcar/Desmarcar como Prioritario", FrutigerAeroUI.VERDE_OSCURO);
+        btnTogglePrioridad.addActionListener(e -> togglePrioridadGrupoSeleccionado());
+
         JButton btnInscribir = new FrutigerAeroUI.BotonGlossy("► Inscribir en Borrador Activo", FrutigerAeroUI.AGUA_PROFUNDA);
         btnInscribir.addActionListener(e -> inscribirGrupoEnBorradorSeleccionado());
 
-        JPanel panelBotonesCatalogo = new JPanel(new GridLayout(3, 1, 0, 3));
+        JPanel panelBotonesCatalogo = new JPanel(new GridLayout(4, 1, 0, 3));
         panelBotonesCatalogo.setOpaque(false);
         panelBotonesCatalogo.add(btnEditar);
         panelBotonesCatalogo.add(btnToggleDisponible);
+        panelBotonesCatalogo.add(btnTogglePrioridad);
         panelBotonesCatalogo.add(btnInscribir);
         panel.add(panelBotonesCatalogo, BorderLayout.SOUTH);
 
@@ -1519,6 +1523,30 @@ public class VistaPrincipal extends JFrame {
                 "Disponibilidad actualizada", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    /**
+     * Parche: marca/desmarca un grupo como "prioritario". Modo Rápido y Horario Óptimo
+     * intentarán usar ese grupo específico antes que otros de la misma materia, siempre
+     * que no genere un choque de horario. No garantiza que siempre se use (si dos grupos
+     * prioritarios de distintas materias chocan entre sí, solo uno podrá entrar).
+     */
+    private void togglePrioridadGrupoSeleccionado() {
+        Grupo seleccionado = listGrupos.getSelectedValue();
+        if (seleccionado == null) {
+            JOptionPane.showMessageDialog(this, "Selecciona un grupo del catálogo.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        seleccionado.setPrioritario(!seleccionado.isPrioritario());
+        GestorPersistencia.guardar(materiasRegistradas, borradores);
+
+        listGrupos.repaint();
+
+        String estado = seleccionado.isPrioritario() ? "PRIORITARIO ⭐" : "normal (ya no prioritario)";
+        JOptionPane.showMessageDialog(this,
+                seleccionado.getMateriaPadre().getNombre() + " [" + seleccionado.getClaveGrupo() + "] ahora es: " + estado,
+                "Prioridad actualizada", JOptionPane.INFORMATION_MESSAGE);
+    }
+
     // =======================================================
     // MODO RÁPIDO & HORARIO ÓPTIMO
     // =======================================================
@@ -1619,6 +1647,7 @@ public class VistaPrincipal extends JFrame {
         List<Grupo> grupos;
         int huecos;
         int dificultad;
+        int gruposPrioritarios; // cuántos grupos ⭐ prioritarios trae esta combinación
     }
 
     private void mostrarDialogoModoRapido() {
@@ -1884,8 +1913,18 @@ public class VistaPrincipal extends JFrame {
             return calcularHorasMuertas(actual) <= limiteHuecos;
         }
 
-        List<Grupo> candidatos = new ArrayList<>(gruposPorMateria.get(indice));
-        Collections.shuffle(candidatos, rnd);
+        // Parche de prioridad: los grupos marcados con ⭐ se intentan primero (entre ellos,
+        // en orden aleatorio); el resto de candidatos se intenta después, también aleatorio.
+        List<Grupo> prioritarios = new ArrayList<>();
+        List<Grupo> normales = new ArrayList<>();
+        for (Grupo g : gruposPorMateria.get(indice)) {
+            (g.isPrioritario() ? prioritarios : normales).add(g);
+        }
+        Collections.shuffle(prioritarios, rnd);
+        Collections.shuffle(normales, rnd);
+        List<Grupo> candidatos = new ArrayList<>(prioritarios.size() + normales.size());
+        candidatos.addAll(prioritarios);
+        candidatos.addAll(normales);
 
         for (Grupo g : candidatos) {
             boolean choca = false;
@@ -2195,6 +2234,9 @@ public class VistaPrincipal extends JFrame {
             ce.grupos = combo;
             ce.huecos = calcularHorasMuertas(combo);
             ce.dificultad = calcularDificultadTotal(combo, fuente);
+            int prioritariosEnCombo = 0;
+            for (Grupo g : combo) if (g.isPrioritario()) prioritariosEnCombo++;
+            ce.gruposPrioritarios = prioritariosEnCombo;
             evaluadas.add(ce);
         }
 
@@ -2255,6 +2297,14 @@ public class VistaPrincipal extends JFrame {
                     .append(" respetan el límite de ").append(limiteHuecos).append(" hora(s) libre(s) al día");
         }
         mensaje.append(", y se seleccionaron ").append(mejores.size()).append(" con el mejor puntaje.");
+
+        long totalPrioritariosDisponibles = gruposPorMateria.stream()
+                .flatMap(List::stream).filter(Grupo::isPrioritario).count();
+        if (totalPrioritariosDisponibles > 0 && !evaluadas.isEmpty()) {
+            int prioritariosLogrados = evaluadas.get(0).gruposPrioritarios;
+            mensaje.append("\n\n⭐ El mejor resultado incluye ").append(prioritariosLogrados)
+                    .append(" de tus grupo(s) marcados como prioritarios.");
+        }
         if (!materiasSinGruposDisponibles.isEmpty()) {
             mensaje.append("\n\nNo se pudieron incluir estas materias (sin grupos disponibles):\n");
             for (String nombre : materiasSinGruposDisponibles) mensaje.append("• ").append(nombre).append("\n");
@@ -2310,17 +2360,26 @@ public class VistaPrincipal extends JFrame {
     }
 
     private Comparator<CombinacionEvaluada> construirComparadorOptimo(EstrategiaBalance estrategia) {
+        Comparator<CombinacionEvaluada> criterioBase;
         switch (estrategia) {
             case DIFICULTAD_PRIMERO:
-                return Comparator.<CombinacionEvaluada>comparingInt(c -> c.dificultad)
+                criterioBase = Comparator.<CombinacionEvaluada>comparingInt(c -> c.dificultad)
                         .thenComparingInt(c -> c.huecos);
+                break;
             case INTERMEDIO:
-                return Comparator.comparingInt(c -> (c.huecos + c.dificultad));
+                criterioBase = Comparator.comparingInt(c -> (c.huecos + c.dificultad));
+                break;
             case HUECOS_PRIMERO:
             default:
-                return Comparator.<CombinacionEvaluada>comparingInt(c -> c.huecos)
+                criterioBase = Comparator.<CombinacionEvaluada>comparingInt(c -> c.huecos)
                         .thenComparingInt(c -> c.dificultad);
+                break;
         }
+        // Parche de prioridad: primero se ordena por cuántos grupos ⭐ trae cada combinación
+        // (más prioritarios = mejor posición), y solo entre empates se aplica la estrategia
+        // que el usuario eligió (huecos/dificultad/intermedio).
+        return Comparator.<CombinacionEvaluada>comparingInt(c -> -c.gruposPrioritarios)
+                .thenComparing(criterioBase);
     }
 
     private void crearMateria() {
@@ -2475,7 +2534,7 @@ public class VistaPrincipal extends JFrame {
                 String nombreProfesor = profesorSinDefinir ? "Por definir" : g.getProfesor();
 
                 String textoBase = m != null
-                        ? m.getNombre() + " (Sem." + m.getSemestre() + ") [" + g.getClaveGrupo() + "] - " + nombreProfesor
+                        ? (g.isPrioritario() ? "⭐ " : "") + m.getNombre() + " (Sem." + m.getSemestre() + ") [" + g.getClaveGrupo() + "] - " + nombreProfesor
                             + " (" + g.getHoraInicio() + ":00 hrs) - Dif.Grupo:" + g.getDificultad() + " Dif.Mat:" + m.getDificultad()
                         : g.toString();
 
@@ -2488,8 +2547,11 @@ public class VistaPrincipal extends JFrame {
                 } else {
                     setText(textoBase);
                     if (!isSelected && m != null) {
-                        c.setBackground(colorSuave(m.getColor()));
+                        c.setBackground(g.isPrioritario() ? new Color(255, 245, 190) : colorSuave(m.getColor()));
                         c.setForeground(Color.DARK_GRAY);
+                    }
+                    if (g.isPrioritario()) {
+                        c.setFont(c.getFont().deriveFont(Font.BOLD));
                     }
                 }
             }

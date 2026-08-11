@@ -13,6 +13,7 @@ public class Grupo implements Serializable {
     private Materia materiaPadre; // Referencia a la materia a la que pertenece
     private boolean disponible = true; // false = grupo lleno / cupo agotado
     private int dificultad = 3; // 1 (fácil) a 5 (difícil), calificación de ese profesor/grupo
+    private boolean prioritario = false; // true = el generador intenta usar este grupo antes que otros de la misma materia
 
     public Grupo(String claveGrupo, String profesor, int horaInicio, Set<DiaSemana> dias) {
         this.claveGrupo = claveGrupo;
@@ -35,6 +36,8 @@ public class Grupo implements Serializable {
     public void setDisponible(boolean disponible) { this.disponible = disponible; }
     public int getDificultad() { return dificultad; }
     public void setDificultad(int dificultad) { this.dificultad = dificultad; }
+    public boolean isPrioritario() { return prioritario; }
+    public void setPrioritario(boolean prioritario) { this.prioritario = prioritario; }
 
     public boolean chocaCon(Grupo otro) {
         if (this.horaInicio != otro.horaInicio) return false;
